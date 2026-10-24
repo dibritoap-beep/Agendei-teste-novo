@@ -1,0 +1,31 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Dark Navy Canvas Base -->
+  <rect width="512" height="512" fill="#0B1320" />
+
+  <!-- Outer Yellow Circle Border & Navy Fill -->
+  <circle cx="256" cy="256" r="232" fill="#0F1D32" stroke="#FACC15" stroke-width="14"/>
+
+  <!-- Notebook and Pen (White Lines) -->
+  <g stroke="#FFFFFF" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- Notebook Body -->
+    <rect x="180" y="140" width="160" height="210" rx="22" />
+    
+    <!-- Spiral Bindings -->
+    <path d="M150 180 H190" />
+    <path d="M150 220 H190" />
+    <path d="M150 260 H190" />
+    <path d="M150 300 H190" />
+
+    <!-- Pen / Pencil -->
+    <path d="M255 245 L305 185 C312 178 323 178 330 185 C337 192 337 203 330 210 L270 270 L240 280 Z" />
+  </g>
+
+  <!-- Yellow AI Sparkle Badge (Bottom-Right) -->
+  <circle cx="405" cy="405" r="76" fill="#FACC15" stroke="#0B1320" stroke-width="12" />
+
+  <!-- AI Sparkle Icon inside Badge -->
+  <g fill="#0B1320">
+    <path d="M405 355 C405 380, 380 405, 355 405 C380 405, 405 430, 405 455 C405 430, 430 405, 455 405 C430 405, 405 380, 405 355 Z" />
+    <circle cx="372" cy="432" r="6" />
+  </g>
+</svg>

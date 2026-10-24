@@ -1,0 +1,12 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /appointments/{appointment} {
+      allow read: if true; // Mirroring requires public read by ID
+      allow write: if true; // For now, we allow writing (we'll rely on the mirrorId being a secret-ish token)
+    }
+    match /mirror_configs/{config} {
+      allow read, write: if true;
+    }
+  }
+}

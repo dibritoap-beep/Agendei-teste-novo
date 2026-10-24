@@ -1,0 +1,204 @@
+
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { VoiceState, Appointment } from '../types';
+import { Mic, MicOff, Loader2, CheckCircle2 } from 'lucide-react';
+import { format } from 'date-fns';
+
+interface VoiceAssistantProps {
+  onAddAppointment: (app: Omit<Appointment, 'id'>) => void;
+  appointments: Appointment[];
+  currentSelectedDate: Date;
+  selectedLanguage: { id: string; label: string; name: string; locale: any };
+  isInsideModal?: boolean;
+}
+
+const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAddAppointment, currentSelectedDate, selectedLanguage, isInsideModal }) => {
+  const [voiceState, setVoiceState] = useState<VoiceState>(VoiceState.IDLE);
+  const [transcription, setTranscription] = useState<string>('');
+  const [lastActionStatus, setLastActionStatus] = useState<'success' | 'error' | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [history, setHistory] = useState<any[]>([]);
+  
+  const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, []);
+
+  const stopAssistant = useCallback(() => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+    setVoiceState(VoiceState.IDLE);
+    setIsProcessing(false);
+  }, []);
+
+  const processCommand = async (text: string) => {
+    setIsProcessing(true);
+    setVoiceState(VoiceState.PROCESSING);
+    
+    try {
+      const response = await fetch('/api/voice-assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, history })
+      });
+
+      if (!response.ok) throw new Error("Erro ao processar comando de voz");
+
+      const data = await response.json();
+      
+      // Update local history
+      setHistory(prev => [
+        ...prev, 
+        { role: 'user', parts: [{ text }] },
+        { role: 'model', parts: [{ text: data.text || "Comando recebido." }] }
+      ]);
+
+      // Handle tool calls (scheduling)
+      if (data.toolCalls && data.toolCalls.length > 0) {
+        for (const call of data.toolCalls) {
+          if (call.name === 'create_appointment') {
+            const args = call.args;
+            
+            let startDate = new Date();
+            if (args.data_inicio) {
+              // Fix for LLMs generating DD/MM/YYYY
+              if (args.data_inicio.match(/^\d{2}\/\d{2}\/\d{4}/)) {
+                const parts = args.data_inicio.split(/[\/\sT:]+/);
+                if (parts.length >= 3) {
+                  const d = parseInt(parts[0], 10);
+                  const m = parseInt(parts[1], 10) - 1;
+                  const y = parseInt(parts[2], 10);
+                  const h = parts.length > 3 ? parseInt(parts[3], 10) : 9;
+                  const min = parts.length > 4 ? parseInt(parts[4], 10) : 0;
+                  startDate = new Date(y, m, d, h, min);
+                }
+              } else if (args.data_inicio.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                // If only YYYY-MM-DD is provided without time, append T12:00:00 to avoid timezone shift
+                startDate = new Date(args.data_inicio + 'T12:00:00');
+              } else {
+                startDate = new Date(args.data_inicio);
+              }
+            }
+            if (isNaN(startDate.getTime())) startDate = new Date();
+            
+            const dateStr = format(startDate, 'yyyy-MM-dd');
+            const timeStr = format(startDate, 'HH:mm');
+
+            onAddAppointment({
+              title: args.titulo || 'Novo Compromisso',
+              date: dateStr,
+              time: timeStr,
+              duration: 60,
+              description: args.descricao || '',
+              location: args.local || 'Não informado',
+              category: args.categoria || 'Geral',
+              potentialConflict: false,
+              callAlert: args.me_ligar_antes || false
+            });
+            
+            setLastActionStatus('success');
+            setTimeout(() => {
+              setLastActionStatus(null);
+              stopAssistant();
+            }, 2500);
+          }
+        }
+      } else {
+        // If no tool call, just show response or keep listening
+        setTranscription(data.text);
+        setIsProcessing(false);
+        setVoiceState(VoiceState.IDLE);
+      }
+
+    } catch (error) {
+      console.error("Erro no Assistente:", error);
+      setVoiceState(VoiceState.ERROR);
+      setIsProcessing(false);
+    }
+  };
+
+  const startAssistant = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    
+    if (!SpeechRecognition) {
+      alert("Seu navegador não suporta reconhecimento de voz.");
+      return;
+    }
+
+    setLastActionStatus(null);
+    setVoiceState(VoiceState.LISTENING);
+    setTranscription('');
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = selectedLanguage.locale?.code || 'pt-BR';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+
+    recognition.onresult = (event: any) => {
+      const current = event.resultIndex;
+      const transcript = event.results[current][0].transcript;
+      setTranscription(transcript);
+
+      if (event.results[current].isFinal) {
+        processCommand(transcript);
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("Erro Recognition:", event.error);
+      setVoiceState(VoiceState.ERROR);
+    };
+
+    recognition.onend = () => {
+      if (voiceState === VoiceState.LISTENING && !isProcessing) {
+        setVoiceState(VoiceState.IDLE);
+      }
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+  };
+
+  return (
+    <div className={`${isInsideModal ? 'relative mt-4 mb-8' : 'fixed bottom-6 sm:bottom-10 left-1/2 -translate-x-1/2 z-[400]'} flex flex-col items-center gap-3 sm:gap-5 w-full max-w-xs px-4 sm:px-6`}>
+      
+      {lastActionStatus === 'success' && (
+        <div className="px-4 sm:px-6 py-2 sm:py-3 rounded-full bg-[#0F52BA] text-white shadow-2xl flex items-center gap-2 sm:gap-3 animate-in slide-in-from-bottom-3">
+          <CheckCircle2 size={16} className="sm:w-[18px] sm:h-[18px]" />
+          <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest">Agendado com Sucesso!</span>
+        </div>
+      )}
+
+      {voiceState !== VoiceState.IDLE && (
+        <div className="glass-panel p-4 sm:p-6 rounded-[2rem] sm:rounded-[2.5rem] w-full animate-in zoom-in duration-300 shadow-2xl border-2 border-[#FFD700]">
+          <div className="flex items-center gap-2 sm:gap-3 mb-2 sm:mb-3">
+            <div className={`w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full animate-pulse ${voiceState === VoiceState.PROCESSING ? 'bg-blue-400' : 'bg-[#D4AF37]'}`}></div>
+            <span className="text-[8px] sm:text-[9px] font-black text-white uppercase tracking-[0.2em] sm:tracking-[0.3em]">
+              {voiceState === VoiceState.PROCESSING ? 'IA Processando...' : 'IA Ouvindo...'}
+            </span>
+          </div>
+          <p className="text-white text-[11px] sm:text-[12px] font-bold italic opacity-80 leading-snug line-clamp-2">
+            {isProcessing ? "Finalizando agendamento..." : (transcription || "Pode falar, estou ouvindo...")}
+          </p>
+        </div>
+      )}
+
+      <button 
+        onClick={voiceState === VoiceState.IDLE ? startAssistant : stopAssistant} 
+        disabled={isProcessing}
+        className={`w-16 h-16 sm:w-20 sm:h-20 rounded-[1.8rem] sm:rounded-[2.2rem] flex items-center justify-center transition-all duration-500 shadow-2xl border-4 border-[#FFD700] btn-press voice-pulse
+        ${voiceState === VoiceState.IDLE ? 'bg-[#FFD700] text-black' : (isProcessing ? 'bg-blue-600 text-white' : 'bg-red-500 text-white')} ${isProcessing ? 'animate-pulse' : ''}`}>
+        {voiceState === VoiceState.CONNECTING || isProcessing ? <Loader2 size={28} className="animate-spin sm:w-8 sm:h-8" /> : 
+         voiceState === VoiceState.IDLE ? <Mic size={28} strokeWidth={2.5} className="sm:w-8 sm:h-8" /> : <MicOff size={28} strokeWidth={2.5} className="sm:w-8 sm:h-8" />}
+      </button>
+    </div>
+  );
+};
+
+export default VoiceAssistant;

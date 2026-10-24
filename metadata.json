@@ -1,0 +1,10 @@
+{
+  "name": "Agendei",
+  "description": "Assistente de agendamento e transcrição de reuniões por voz com IA.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
