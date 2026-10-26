@@ -58,3 +58,13 @@ body {
   border-top: 1px solid rgba(255, 215, 0, 0.2);
   margin: 2rem 0;
 }
+
+/* Hide scrollbar for clean horizontal strips */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+

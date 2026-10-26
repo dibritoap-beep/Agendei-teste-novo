@@ -4,16 +4,22 @@ import CalendarView from './components/CalendarView';
 import VoiceAssistant from './components/VoiceAssistant';
 import MeetingManager from './components/MeetingManager';
 import AdBanner from './components/AdBanner';
-import { format } from 'date-fns';
+import { format, addDays, subDays, isToday, isSameDay } from 'date-fns';
 import { ptBR, enUS } from 'date-fns/locale';
 import { jsPDF } from 'jspdf';
 import Markdown from 'react-markdown';
 import { db } from './src/lib/firebase';
 import { collection, addDoc, updateDoc, deleteDoc, doc, setDoc, serverTimestamp, onSnapshot, query, where } from 'firebase/firestore';
 import { 
-  Globe, NotebookPen, Sparkles, Clock, X, Plus, ChevronRight, Target, Check, Edit2, Trash2, LayoutGrid, Share2, Download, Bell, Home, Calendar as CalendarIcon, Settings, PhoneCall, Monitor, Info, RefreshCw, Flag
+  Globe, NotebookPen, Sparkles, Clock, X, Plus, ChevronRight, ChevronLeft, Target, Check, Edit2, Trash2, LayoutGrid, Share2, Download, Bell, Home, Calendar as CalendarIcon, Settings, PhoneCall, Monitor, Info, RefreshCw, Flag
 } from 'lucide-react';
 import { getHolidayForDate, syncHolidaysWithAppointments } from './src/utils/holidays';
+import { 
+  registerPushNotifications, 
+  scheduleServerPushReminder, 
+  sendTestPushNotification, 
+  requestNotificationPermission 
+} from './src/utils/pushNotifications';
 
 const LANGUAGES = [
   { id: 'pt', label: 'BR', flag: '🇧🇷', name: 'Portugues', locale: ptBR },
@@ -208,6 +214,85 @@ const App: React.FC = () => {
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [isIOSModalOpen, setIsIOSModalOpen] = useState(false);
   const agendaListRef = useRef<HTMLDivElement>(null);
+  const [isPushSubscribed, setIsPushSubscribed] = useState<boolean>(() => {
+    return localStorage.getItem('agendei_push_subscribed') === 'true';
+  });
+
+  // Handle incoming call triggered from notification click (?call=true)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('call') === 'true') {
+      const callTitle = params.get('title') || 'Compromisso Agendado';
+      setIncomingCall({
+        app: {
+          id: 'push_call',
+          title: callTitle,
+          date: format(new Date(), 'yyyy-MM-dd'),
+          time: format(new Date(), 'HH:mm'),
+          duration: 30,
+          callAlert: true
+        },
+        timeStr: 'Agora'
+      });
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
+  // Auto-register push if permission is already granted
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      registerPushNotifications().then(res => {
+        if (res.success) setIsPushSubscribed(true);
+      }).catch(() => {});
+    }
+  }, []);
+
+  // Sync future appointment reminders to backend push scheduler
+  useEffect(() => {
+    const now = Date.now();
+    appointments.forEach(app => {
+      if (!app.reminders || app.reminders.length === 0) return;
+      const appTimestamp = new Date(`${app.date}T${app.time}`).getTime();
+
+      app.reminders.forEach(reminderMinutes => {
+        const targetTimestamp = appTimestamp - (reminderMinutes * 60000);
+        if (targetTimestamp > now) {
+          let timeStr = `${reminderMinutes} minutos`;
+          if (reminderMinutes === 1440) timeStr = '24 horas';
+          else if (reminderMinutes === 120) timeStr = '2 horas';
+          else if (reminderMinutes === 60) timeStr = '1 hora';
+
+          scheduleServerPushReminder({
+            id: `${app.id}_${app.date}_${app.time}_${reminderMinutes}`,
+            targetTimestamp,
+            title: app.callAlert ? `📞 CHAMADA: ${app.title}` : `AGENDEI - ${app.title}`,
+            body: `Lembrete: seu compromisso começa em ${timeStr}!`,
+            callAlert: app.callAlert,
+            appointmentId: app.id
+          });
+        }
+      });
+    });
+  }, [appointments]);
+
+  const handleEnablePushNotifications = async () => {
+    const res = await registerPushNotifications();
+    if (res.success) {
+      setIsPushSubscribed(true);
+      alert('Notificações no topo do celular ativadas com sucesso!');
+    } else {
+      alert(res.message || 'Não foi possível ativar as notificações.');
+    }
+  };
+
+  const handleTestBackgroundPush = async (callAlert = false) => {
+    const res = await sendTestPushNotification(5, callAlert);
+    if (res.success) {
+      alert(res.message);
+    } else {
+      alert(res.message || 'Erro ao enviar teste');
+    }
+  };
 
   useEffect(() => {
     const handler = (e: any) => {
@@ -666,27 +751,27 @@ _Enviado via AGENDEI IA_
   };
 
   const shareDayAgenda = () => {
-    if (selectedDayAppointments.length === 0) {
+    const holiday = getHolidayForDate(selectedDate);
+    if (selectedDayRegularAppointments.length === 0 && !holiday) {
       alert("Não há compromissos neste dia.");
       return;
     }
-    const holiday = getHolidayForDate(selectedDate);
     let header = `Agenda do Dia - ${format(selectedDate, 'dd/MM/yyyy')}\n`;
     if (holiday) {
-      header += `🇧🇷 FERIADO NACIONAL: ${holiday.name}\n`;
+      header += `🇧🇷 FERIADO NACIONAL: ${holiday.name} (${holiday.description})\n`;
     }
-    const text = header + `\n` + selectedDayAppointments.map(a => {
+    const text = header + (selectedDayRegularAppointments.length > 0 ? `\n` + selectedDayRegularAppointments.map(a => {
       let desc = `• ${a.time} - ${a.title} (${a.duration} min)`;
       if (a.description) desc += `\n  PAUTAS: ${a.description}`;
       desc += `\n  STATUS: ${a.hasReport ? 'DOCUMENTADO' : 'PENDENTE'}`;
       if (a.category) desc += `\n  CATEGORIA: ${a.category}`;
       if (a.location) desc += `\n  LOCAL: ${a.location}`;
       return desc;
-    }).join('\n\n');
+    }).join('\n\n') : '');
     
     if (navigator.share) {
       navigator.share({
-        title: `Agenda do Dia - ${selectedDate}`,
+        title: `Agenda do Dia - ${format(selectedDate, 'dd/MM/yyyy')}`,
         text: text,
       }).catch(console.error);
     } else {
@@ -714,7 +799,7 @@ _Enviado via AGENDEI IA_
   };
 
   const shareAllAgenda = () => {
-    const sortedApps = [...appointments].filter(a => !a.hasReport).sort((a,b) => new Date(`${a.date}T${a.time}`).getTime() - new Date(`${b.date}T${b.time}`).getTime());
+    const sortedApps = [...appointments].filter(a => !a.hasReport && !a.id.startsWith('feriado_') && a.category !== 'Feriado').sort((a,b) => new Date(`${a.date}T${a.time}`).getTime() - new Date(`${b.date}T${b.time}`).getTime());
     if (sortedApps.length === 0) {
       alert("Não há compromissos agendados.");
       return;
@@ -830,20 +915,79 @@ _Enviado via AGENDEI IA_
 
   const selectedDayHoliday = useMemo(() => getHolidayForDate(selectedDate), [selectedDate]);
 
+  const selectedDayRegularAppointments = useMemo(() => {
+    return selectedDayAppointments.filter(app => !app.id.startsWith('feriado_') && app.category !== 'Feriado');
+  }, [selectedDayAppointments]);
+
+  const dateStripRef = useRef<HTMLDivElement>(null);
+
+  // Generates 31 days (-15 to +15) around selectedDate for smooth horizontal day browsing
+  const dateStrip = useMemo(() => {
+    const days: Date[] = [];
+    for (let i = -15; i <= 15; i++) {
+      days.push(addDays(selectedDate, i));
+    }
+    return days;
+  }, [selectedDate]);
+
+  const scrollDateStrip = (direction: 'left' | 'right') => {
+    if (dateStripRef.current) {
+      dateStripRef.current.scrollBy({ left: direction === 'left' ? -220 : 220, behavior: 'smooth' });
+    }
+  };
+
+  const handlePrevDay = () => {
+    setSelectedDate(prev => subDays(prev, 1));
+  };
+
+  const handleNextDay = () => {
+    setSelectedDate(prev => addDays(prev, 1));
+  };
+
+  const handleToday = () => {
+    setSelectedDate(new Date());
+  };
+
+  const handlePrevEventDate = () => {
+    for (let i = 1; i <= 365; i++) {
+      const prevD = subDays(selectedDate, i);
+      const prevStr = format(prevD, 'yyyy-MM-dd');
+      const hasApp = appointments.some(a => a.date === prevStr && !a.id.startsWith('feriado_') && a.category !== 'Feriado');
+      const hasHol = !!getHolidayForDate(prevD);
+      if (hasApp || hasHol) {
+        setSelectedDate(prevD);
+        return;
+      }
+    }
+  };
+
+  const handleNextEventDate = () => {
+    for (let i = 1; i <= 365; i++) {
+      const nextD = addDays(selectedDate, i);
+      const nextStr = format(nextD, 'yyyy-MM-dd');
+      const hasApp = appointments.some(a => a.date === nextStr && !a.id.startsWith('feriado_') && a.category !== 'Feriado');
+      const hasHol = !!getHolidayForDate(nextD);
+      if (hasApp || hasHol) {
+        setSelectedDate(nextD);
+        return;
+      }
+    }
+  };
+
   const activeAppointment = appointments.find(a => a.id === activeAppointmentId) || null;
 
   const renderAppCard = (app: Appointment) => {
+    if (app.category === 'Feriado' || app.id.startsWith('feriado_')) {
+      return null;
+    }
     const isReport = app.hasReport;
-    const isHoliday = app.category === 'Feriado' || app.id.startsWith('feriado_');
     return (
       <div key={app.id} 
         onClick={() => isReport ? setSelectedReport(reports.find(r => r.appointmentId === app.id) || null) : setActiveAppointmentId(app.id)}
         className={`group rounded-xl sm:rounded-2xl p-3 sm:p-4 transition-all hover:translate-x-1 cursor-pointer border-l-4 sm:border-l-6 relative shadow-sm w-full overflow-hidden ${
-          isHoliday
-            ? 'border-l-emerald-500 bg-gradient-to-r from-[#0d281e] to-[#112240] border border-emerald-500/40 hover:bg-[#143d2e]'
-            : isReport 
-              ? 'border-l-[#0F52BA] bg-[#112240]/80 border border-[#0F52BA]/30' 
-              : 'border-l-[#0F52BA] bg-[#112240] hover:bg-[#1A2B4C] border border-[#0F52BA]/50'
+          isReport 
+            ? 'border-l-[#0F52BA] bg-[#112240]/80 border border-[#0F52BA]/30' 
+            : 'border-l-[#0F52BA] bg-[#112240] hover:bg-[#1A2B4C] border border-[#0F52BA]/50'
         }`}>
         
         <div className="flex flex-col gap-3">
@@ -861,9 +1005,7 @@ _Enviado via AGENDEI IA_
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 px-2 py-1">
             <div className="flex items-center gap-2">
               <span className="text-[9px] font-black text-white/40 uppercase tracking-wider">Status:</span>
-              {isHoliday ? (
-                <span className="text-[9px] font-black text-emerald-300 uppercase bg-emerald-500/20 px-1.5 py-0.5 rounded border border-emerald-500/30">FERIADO NACIONAL</span>
-              ) : isReport ? (
+              {isReport ? (
                 <span className="text-[9px] font-black text-[#FDD835] uppercase bg-[#FDD835]/10 px-1.5 py-0.5 rounded">DOCUMENTADO</span>
               ) : recordingTimer?.id === app.id && recordingTimer.isRecording ? (
                 <span className="text-[9px] font-black text-[#EF5350] uppercase bg-[#EF5350]/10 px-1.5 py-0.5 rounded animate-pulse">GRAVANDO</span>
@@ -1010,7 +1152,7 @@ _Enviado via AGENDEI IA_
                 <h3 className="text-[11.5px] sm:text-[13px] font-black uppercase tracking-[0.15em] sm:tracking-[0.2em] text-white">Agenda do Dia</h3>
               </div>
               <div className="flex items-center gap-2">
-                {selectedDayAppointments.length > 0 && (
+                {(selectedDayRegularAppointments.length > 0 || selectedDayHoliday) && (
                   <>
                     <button onClick={syncAllToFirestore} className="w-[38px] h-[38px] sm:w-[46px] sm:h-[46px] bg-[#1A2B4C] border border-[#233559] rounded-xl flex items-center justify-center text-white hover:bg-[#233559] shadow-sm transition-all" title="Sincronizar com a Base">
                       <RefreshCw size={18} className="sm:w-5 sm:h-5 text-blue-400" />
@@ -1045,14 +1187,14 @@ _Enviado via AGENDEI IA_
                 </div>
               )}
 
-              {selectedDayAppointments.length === 0 ? (
+              {selectedDayRegularAppointments.length > 0 ? (
+                selectedDayRegularAppointments.map(renderAppCard)
+              ) : !selectedDayHoliday ? (
                 <div className="py-20 glass-panel rounded-[2.5rem] flex flex-col items-center justify-center border-dashed border-2 border-white/10">
                   <LayoutGrid size={36} className="mb-4 text-[#FDD835]/20" />
                   <p className="text-[11.5px] font-black uppercase tracking-[0.4em] text-white/30">Nada agendado</p>
                 </div>
-              ) : (
-                selectedDayAppointments.map(renderAppCard)
-              )}
+              ) : null}
             </div>
           </section>
         </main>
@@ -1069,7 +1211,7 @@ _Enviado via AGENDEI IA_
                     </span>
                   </div>
                </div>
-               {selectedDayAppointments.length > 0 && (
+               {(selectedDayRegularAppointments.length > 0 || selectedDayHoliday) && (
                  <div className="flex items-center gap-2" data-exclude-download="true">
                    <button onClick={() => setIsMirrorModalOpen(true)} className="w-10 h-10 bg-[#1A2B4C] border border-[#FDD835]/30 rounded-xl flex items-center justify-center text-[#FDD835] hover:bg-[#FDD835] hover:text-black shadow-sm transition-all flex-shrink-0" title="Espelhamento Executivo">
                      <Monitor size={16} />
@@ -1085,6 +1227,158 @@ _Enviado via AGENDEI IA_
                    </button>
                  </div>
                )}
+             </div>
+             
+             {/* Barra de Navegação e Rolagem Temporal (Para frente e para trás) */}
+             <div className="mb-6 space-y-3" data-exclude-download="true">
+               {/* Controles Principais de Navegação Dia a Dia */}
+               <div className="bg-[#112240] border border-[#233559] rounded-2xl p-2.5 sm:p-3 flex items-center justify-between gap-2 shadow-lg">
+                 <div className="flex items-center gap-1.5">
+                   <button
+                     onClick={handlePrevEventDate}
+                     className="p-2 sm:px-2.5 sm:py-2 bg-[#1A2B4C] hover:bg-[#233559] text-white/70 hover:text-white rounded-xl border border-white/5 transition-all text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 active:scale-95"
+                     title="Pular para compromisso ou feriado anterior"
+                   >
+                     <ChevronLeft size={14} />
+                     <span className="hidden md:inline">Evento Ant.</span>
+                   </button>
+                   <button
+                     onClick={handlePrevDay}
+                     className="p-2 sm:px-3 sm:py-2 bg-[#1A2B4C] hover:bg-[#FDD835] hover:text-black text-white rounded-xl border border-white/10 flex items-center gap-1.5 transition-all text-xs font-black uppercase shadow-sm group active:scale-95"
+                     title="Dia Anterior (Voltar)"
+                   >
+                     <ChevronLeft size={18} className="group-hover:-translate-x-0.5 transition-transform" />
+                     <span className="hidden sm:inline">Anterior</span>
+                   </button>
+                 </div>
+
+                 {/* Indicador Central da Data Selecionada */}
+                 <div 
+                   onClick={handleToday}
+                   className="flex flex-col items-center text-center cursor-pointer px-2 py-1 rounded-xl hover:bg-white/5 transition-all"
+                   title="Clique para voltar para Hoje"
+                 >
+                   <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-center">
+                     <span className="text-[13px] sm:text-[15px] font-black text-white uppercase tracking-tight">
+                       {format(selectedDate, "dd 'de' MMMM", { locale: selectedLang.locale })}
+                     </span>
+                     {isToday(selectedDate) && (
+                       <span className="text-[8.5px] bg-[#FDD835] text-black font-black px-1.5 py-0.5 rounded uppercase">
+                         Hoje
+                       </span>
+                     )}
+                     {selectedDayHoliday && (
+                       <span className="text-[8.5px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold px-1.5 py-0.5 rounded uppercase flex items-center gap-0.5">
+                         🇧🇷 Feriado
+                       </span>
+                     )}
+                   </div>
+                   <span className="text-[9.5px] sm:text-[10.5px] font-bold text-white/50 uppercase tracking-wider mt-0.5">
+                     {format(selectedDate, "EEEE, yyyy", { locale: selectedLang.locale })}
+                   </span>
+                 </div>
+
+                 <div className="flex items-center gap-1.5">
+                   {!isToday(selectedDate) && (
+                     <button
+                       onClick={handleToday}
+                       className="px-2.5 py-1.5 bg-[#FDD835]/15 hover:bg-[#FDD835] text-[#FDD835] hover:text-black rounded-lg border border-[#FDD835]/30 transition-all text-[10px] font-black uppercase tracking-wider active:scale-95"
+                       title="Ir para o dia de hoje"
+                     >
+                       Hoje
+                     </button>
+                   )}
+                   <button
+                     onClick={handleNextDay}
+                     className="p-2 sm:px-3 sm:py-2 bg-[#1A2B4C] hover:bg-[#FDD835] hover:text-black text-white rounded-xl border border-white/10 flex items-center gap-1.5 transition-all text-xs font-black uppercase shadow-sm group active:scale-95"
+                     title="Próximo Dia (Avançar)"
+                   >
+                     <span className="hidden sm:inline">Próximo</span>
+                     <ChevronRight size={18} className="group-hover:translate-x-0.5 transition-transform" />
+                   </button>
+                   <button
+                     onClick={handleNextEventDate}
+                     className="p-2 sm:px-2.5 sm:py-2 bg-[#1A2B4C] hover:bg-[#233559] text-white/70 hover:text-white rounded-xl border border-white/5 transition-all text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 active:scale-95"
+                     title="Pular para próximo compromisso ou feriado"
+                   >
+                     <span className="hidden md:inline">Próx. Evento</span>
+                     <ChevronRight size={14} />
+                   </button>
+                 </div>
+               </div>
+
+               {/* Barra de Rolagem Horizontal de Dias */}
+               <div className="relative flex items-center bg-[#0d1e38] border border-[#233559]/70 rounded-2xl p-1.5 shadow-inner">
+                 <button
+                   onClick={() => scrollDateStrip('left')}
+                   className="p-2 bg-[#1A2B4C]/90 hover:bg-[#FDD835] hover:text-black text-white rounded-xl transition-all shadow-md flex-shrink-0 z-10 active:scale-95 border border-white/5"
+                   title="Rolar dias para trás"
+                 >
+                   <ChevronLeft size={16} />
+                 </button>
+
+                 <div 
+                   ref={dateStripRef} 
+                   className="flex items-center gap-1.5 overflow-x-auto py-1 px-2 no-scrollbar scroll-smooth flex-1"
+                 >
+                   {dateStrip.map((day) => {
+                     const dayStr = format(day, 'yyyy-MM-dd');
+                     const isSelected = isSameDay(day, selectedDate);
+                     const dayHoliday = getHolidayForDate(day);
+                     const hasAppointments = appointments.some(
+                       a => a.date === dayStr && !a.id.startsWith('feriado_') && a.category !== 'Feriado'
+                     );
+                     const isDayToday = isToday(day);
+
+                     return (
+                       <button
+                         key={dayStr}
+                         onClick={() => setSelectedDate(day)}
+                         className={`flex-shrink-0 flex flex-col items-center justify-center min-w-[54px] sm:min-w-[62px] py-2 px-1 rounded-xl transition-all border relative cursor-pointer ${
+                           isSelected
+                             ? 'bg-[#FDD835] text-black border-[#FDD835] font-black shadow-lg scale-105 z-10'
+                             : isDayToday
+                               ? 'bg-[#1A2B4C] text-[#FDD835] border-[#FDD835]/50 hover:bg-[#233559]'
+                               : 'bg-[#112240] text-white/80 border-white/5 hover:bg-[#1A2B4C] hover:text-white'
+                         }`}
+                       >
+                         <span className={`text-[9.5px] uppercase font-bold tracking-wider ${isSelected ? 'text-black/80' : 'text-white/40'}`}>
+                           {format(day, 'EEE', { locale: selectedLang.locale })}
+                         </span>
+                         <span className={`text-[15px] sm:text-[16px] font-black leading-tight my-0.5 ${isSelected ? 'text-black' : 'text-white'}`}>
+                           {format(day, 'd')}
+                         </span>
+                         <span className={`text-[8.5px] uppercase font-bold ${isSelected ? 'text-black/70' : 'text-white/40'}`}>
+                           {format(day, 'MMM', { locale: selectedLang.locale })}
+                         </span>
+
+                         {/* Badges de Feriado 🇧🇷 e Agendamento */}
+                         <div className="flex items-center gap-1 mt-1 h-3">
+                           {dayHoliday && (
+                             <span className="text-[9px] leading-none select-none" title={`Feriado: ${dayHoliday.name}`}>
+                               🇧🇷
+                             </span>
+                           )}
+                           {hasAppointments && (
+                             <span 
+                               className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-black' : 'bg-[#FDD835]'}`} 
+                               title="Compromisso agendado"
+                             />
+                           )}
+                         </div>
+                       </button>
+                     );
+                   })}
+                 </div>
+
+                 <button
+                   onClick={() => scrollDateStrip('right')}
+                   className="p-2 bg-[#1A2B4C]/90 hover:bg-[#FDD835] hover:text-black text-white rounded-xl transition-all shadow-md flex-shrink-0 z-10 active:scale-95 border border-white/5"
+                   title="Rolar dias para frente"
+                 >
+                   <ChevronRight size={16} />
+                 </button>
+               </div>
              </div>
              
              {selectedDayHoliday && (
@@ -1106,15 +1400,16 @@ _Enviado via AGENDEI IA_
              )}
              
              <div className="w-full bg-[#112240] rounded-[2rem] border-t-4 border-[#0F52BA] border-[#233559] shadow-xl overflow-hidden">
-                             {selectedDayAppointments.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 px-4">
-                                    <p className="text-white/40 text-xs font-bold uppercase text-center tracking-wider">Nenhum compromisso marcado para este dia.</p>
-                </div>
-              ) : (
-                <div className="flex flex-col">
-                  {selectedDayAppointments.map((app, index, arr) => {
-                     const isReport = app.hasReport;
-                     const isHoliday = app.category === 'Feriado' || app.id.startsWith('feriado_');
+                {selectedDayRegularAppointments.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 px-4">
+                    <p className="text-white/40 text-xs font-bold uppercase text-center tracking-wider">
+                      {selectedDayHoliday ? 'Nenhum compromisso adicional marcado para este dia.' : 'Nenhum compromisso marcado para este dia.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col">
+                    {selectedDayRegularAppointments.map((app, index, arr) => {
+                      const isReport = app.hasReport;
                      return (
                      <div key={app.id} 
                          onClick={() => isReport ? setSelectedReport(reports.find(r => r.appointmentId === app.id) || null) : setActiveAppointmentId(app.id)}
@@ -1131,11 +1426,9 @@ _Enviado via AGENDEI IA_
                                <div className="flex items-center gap-3">
                                  <span className="text-[10.5px] font-black text-white/30 uppercase tracking-[0.1em] min-w-[70px]">Status:</span>
                                  <span className={`text-[10.5px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${
-                                   isHoliday 
-                                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
-                                     : isReport ? 'bg-[#FDD835]/20 text-[#FDD835]' : 'bg-white/5 text-white/50'
+                                    isReport ? 'bg-[#FDD835]/20 text-[#FDD835]' : 'bg-white/5 text-white/50'
                                  }`}>
-                                   {isHoliday ? 'FERIADO NACIONAL' : isReport ? 'DOCUMENTADO' : 'AGENDADO'}
+                                    {isReport ? 'DOCUMENTADO' : 'AGENDADO'}
                                  </span>
                                </div>
                                
@@ -1186,6 +1479,40 @@ _Enviado via AGENDEI IA_
               <Bell size={24} className="text-[#FDD835]" />
               <h2 className="text-xl font-black text-white uppercase tracking-widest">Central de Avisos</h2>
            </div>
+
+           {/* Status das Notificações em Segundo Plano */}
+           <div className="bg-[#112240] border border-[#233559] p-4 rounded-2xl flex items-center justify-between gap-3 shadow-lg mb-4">
+             <div className="flex items-center gap-3">
+               <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                 isPushSubscribed ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-[#FDD835]/20 text-[#FDD835]'
+               }`}>
+                 <Bell size={20} />
+               </div>
+               <div>
+                 <h4 className="text-xs font-black text-white uppercase tracking-wider">Avisos com App Fechado</h4>
+                 <p className="text-[10px] text-white/50 uppercase mt-0.5">
+                   {isPushSubscribed ? 'Notificações no topo da tela ativas' : 'Permita avisos para receber alertas com a tela bloqueada'}
+                 </p>
+               </div>
+             </div>
+             {!isPushSubscribed ? (
+               <button
+                 onClick={handleEnablePushNotifications}
+                 className="px-3 py-1.5 bg-[#FDD835] text-black text-[9.5px] font-black uppercase rounded-lg hover:scale-105 active:scale-95 transition-all shadow-md flex-shrink-0"
+               >
+                 Ativar
+               </button>
+             ) : (
+               <button
+                 onClick={() => handleTestBackgroundPush(false)}
+                 className="px-2.5 py-1.5 bg-[#1A2B4C] hover:bg-[#233559] text-[#FDD835] text-[9px] font-black uppercase rounded-lg border border-[#FDD835]/30 transition-all flex-shrink-0"
+                 title="Testar envio com tela bloqueada"
+               >
+                 Testar
+               </button>
+             )}
+           </div>
+
            <div className="space-y-4">
               {appointments.filter(a => a.potentialConflict || a.callAlert).length === 0 ? (
                  <p className="text-white/50 text-xs font-bold uppercase text-center py-10">Nenhum aviso pendente</p>
@@ -1244,6 +1571,56 @@ _Enviado via AGENDEI IA_
                 </div>
              </div>
              
+             <div className="glass-panel p-5 rounded-2xl border-2 border-white/5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-[11px] font-black text-[#FDD835] uppercase tracking-widest">Avisos no Topo do Celular (Segundo Plano)</h3>
+                  <span className={`text-[8.5px] px-2 py-0.5 rounded font-black uppercase tracking-wider ${
+                    isPushSubscribed ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-yellow-500/20 text-yellow-300'
+                  }`}>
+                    {isPushSubscribed ? 'Ativo no Aparelho' : 'Pendente'}
+                  </span>
+                </div>
+
+                <div className="bg-[#112240] p-4 rounded-xl mb-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                  <div>
+                    <p className="text-sm font-bold text-white uppercase">Notificações com App Fechado</p>
+                    <p className="text-[10px] text-white/50 uppercase">Receba avisos de reuniões e ligações mesmo com celular bloqueado</p>
+                  </div>
+                  {!isPushSubscribed ? (
+                    <button 
+                      onClick={handleEnablePushNotifications} 
+                      className="px-4 py-2 bg-[#FDD835] text-black text-[10px] font-black uppercase rounded-lg hover:scale-105 active:scale-95 transition-all shadow-md flex-shrink-0"
+                    >
+                      Ativar Notificações
+                    </button>
+                  ) : (
+                    <span className="text-emerald-400 text-xs font-black uppercase flex items-center gap-1">
+                      <Check size={14} /> Ativado
+                    </span>
+                  )}
+                </div>
+
+                <div className="bg-[#0A1526] p-3 rounded-xl border border-white/5 flex flex-col gap-2">
+                  <p className="text-[10px] font-bold text-white/70 uppercase">Testar Notificações (Saia do app ou bloqueie a tela em 5s):</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={() => handleTestBackgroundPush(false)}
+                      className="px-3 py-1.5 bg-[#1A2B4C] hover:bg-[#233559] text-white text-[9.5px] font-black uppercase rounded-lg border border-white/10 transition-all flex items-center gap-1.5"
+                    >
+                      <Bell size={12} className="text-[#FDD835]" />
+                      Testar Aviso Normal
+                    </button>
+                    <button
+                      onClick={() => handleTestBackgroundPush(true)}
+                      className="px-3 py-1.5 bg-[#1A2B4C] hover:bg-[#233559] text-[#FDD835] text-[9.5px] font-black uppercase rounded-lg border border-[#FDD835]/30 transition-all flex items-center gap-1.5"
+                    >
+                      <PhoneCall size={12} className="text-[#FDD835]" />
+                      Testar Alerta de Ligação
+                    </button>
+                  </div>
+                </div>
+             </div>
+
              <div className="glass-panel p-5 rounded-2xl border-2 border-white/5">
                 <h3 className="text-[11px] font-black text-[#FDD835] uppercase mb-4 tracking-widest">Aplicativo</h3>
                 <div className="flex justify-between items-center bg-[#112240] p-4 rounded-xl">

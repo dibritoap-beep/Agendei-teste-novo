@@ -90,7 +90,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ appointments, selectedDate,
             const isSelectedMonth = isSameDay(startOfMonth(day), monthStart);
             const isSelected = isSameDay(day, selectedDate);
             const isDayToday = isToday(day);
-            const hasApps = appointments.some(app => app.date === format(day, 'yyyy-MM-dd'));
+            const hasApps = appointments.some(app => app.date === format(day, 'yyyy-MM-dd') && !app.id.startsWith('feriado_') && app.category !== 'Feriado');
             const holiday = getHolidayForDate(day);
 
             return (

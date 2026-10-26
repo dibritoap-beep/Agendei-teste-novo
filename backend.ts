@@ -1,5 +1,6 @@
 import express from "express";
 import { GoogleGenAI, Type } from "@google/genai";
+import webpush from "web-push";
 
 export const app = express();
 
@@ -233,6 +234,156 @@ const handleVoiceAssistant = async (req: express.Request, res: express.Response)
   }
 };
 
+// ==========================================
+// WEB PUSH NOTIFICATIONS (BACKGROUND ALERTS)
+// ==========================================
+let vapidKeys = {
+  publicKey: process.env.VAPID_PUBLIC_KEY || '',
+  privateKey: process.env.VAPID_PRIVATE_KEY || ''
+};
+
+if (!vapidKeys.publicKey || !vapidKeys.privateKey) {
+  const generated = webpush.generateVAPIDKeys();
+  vapidKeys = generated;
+}
+
+try {
+  webpush.setVapidDetails(
+    'mailto:contato@agendei.app',
+    vapidKeys.publicKey,
+    vapidKeys.privateKey
+  );
+} catch (err) {
+  console.error("Vapid initialization error:", err);
+}
+
+// In-memory subscription storage (survives requests in node process)
+const pushSubscriptions = new Set<string>();
+
+interface ScheduledPushItem {
+  id: string;
+  targetTimestamp: number;
+  title: string;
+  body: string;
+  callAlert: boolean;
+  appointmentId?: string;
+}
+
+let scheduledPushes: ScheduledPushItem[] = [];
+
+// Background dispatcher loop: checks every 10 seconds if any push reminder is due
+setInterval(async () => {
+  const now = Date.now();
+  const due = scheduledPushes.filter(item => item.targetTimestamp <= now);
+  if (due.length === 0) return;
+
+  // Remove processed items
+  scheduledPushes = scheduledPushes.filter(item => item.targetTimestamp > now);
+
+  for (const item of due) {
+    const payload = JSON.stringify({
+      title: item.title,
+      body: item.body,
+      callAlert: item.callAlert,
+      appointmentId: item.appointmentId,
+      url: item.callAlert ? `/?call=true&title=${encodeURIComponent(item.title)}` : '/'
+    });
+
+    for (const subStr of pushSubscriptions) {
+      try {
+        const sub = JSON.parse(subStr);
+        await webpush.sendNotification(sub, payload);
+      } catch (err: any) {
+        if (err.statusCode === 404 || err.statusCode === 410) {
+          pushSubscriptions.delete(subStr);
+        } else {
+          console.error("Error dispatching background push:", err);
+        }
+      }
+    }
+  }
+}, 10000);
+
+const handleGetVapidKey = (req: express.Request, res: express.Response) => {
+  res.json({ publicKey: vapidKeys.publicKey });
+};
+
+const handlePushSubscribe = (req: express.Request, res: express.Response) => {
+  const { subscription } = req.body || {};
+  if (!subscription || !subscription.endpoint) {
+    return res.status(400).json({ error: "Assinatura Push inválida" });
+  }
+
+  pushSubscriptions.add(JSON.stringify(subscription));
+  res.json({ success: true, count: pushSubscriptions.size });
+};
+
+const handlePushTest = async (req: express.Request, res: express.Response) => {
+  const { delaySeconds = 5, callAlert = false, title, body } = req.body || {};
+
+  const notifTitle = title || (callAlert ? '📞 LIGAÇÃO: AGENDEI IA' : 'AGENDEI - Alerta de Compromisso');
+  const notifBody = body || (callAlert ? 'Chamada urgente: Reunião Executiva em 5 minutos!' : 'Seu compromisso agendado começa em breve!');
+
+  if (delaySeconds > 0) {
+    // Schedule to fire in delaySeconds (ideal for user locking phone/closing app)
+    scheduledPushes.push({
+      id: `test_${Date.now()}`,
+      targetTimestamp: Date.now() + (delaySeconds * 1000),
+      title: notifTitle,
+      body: notifBody,
+      callAlert: !!callAlert
+    });
+    return res.json({ 
+      success: true, 
+      message: `Notificação agendada para daqui a ${delaySeconds} segundos. Você pode bloquear a tela ou fechar o app para testar!` 
+    });
+  }
+
+  // Immediate push
+  const payload = JSON.stringify({
+    title: notifTitle,
+    body: notifBody,
+    callAlert: !!callAlert,
+    url: callAlert ? `/?call=true&title=${encodeURIComponent(notifTitle)}` : '/'
+  });
+
+  let sent = 0;
+  for (const subStr of pushSubscriptions) {
+    try {
+      const sub = JSON.parse(subStr);
+      await webpush.sendNotification(sub, payload);
+      sent++;
+    } catch (err: any) {
+      if (err.statusCode === 404 || err.statusCode === 410) {
+        pushSubscriptions.delete(subStr);
+      }
+    }
+  }
+
+  res.json({ success: true, sent });
+};
+
+const handlePushSchedule = (req: express.Request, res: express.Response) => {
+  const { id, targetTimestamp, title, body, callAlert, appointmentId } = req.body || {};
+  if (!targetTimestamp || !title) {
+    return res.status(400).json({ error: "Parâmetros incompletos" });
+  }
+
+  // Filter out any existing push with this ID to avoid duplicates
+  scheduledPushes = scheduledPushes.filter(p => p.id !== id);
+
+  scheduledPushes.push({
+    id: id || `rem_${Date.now()}`,
+    targetTimestamp,
+    title,
+    body: body || 'Compromisso agendado no AGENDEI',
+    callAlert: !!callAlert,
+    appointmentId
+  });
+
+  res.json({ success: true, scheduledCount: scheduledPushes.length });
+};
+
 // Route Registrations (both /api/route and /route for Vercel rewrite compatibility)
 app.get("/api/health", handleHealth);
 app.get("/health", handleHealth);
@@ -242,3 +393,16 @@ app.post("/analyze-meeting", handleAnalyzeMeeting);
 
 app.post("/api/voice-assistant", handleVoiceAssistant);
 app.post("/voice-assistant", handleVoiceAssistant);
+
+app.get("/api/push-vapid-public-key", handleGetVapidKey);
+app.get("/push-vapid-public-key", handleGetVapidKey);
+
+app.post("/api/push-subscribe", handlePushSubscribe);
+app.post("/push-subscribe", handlePushSubscribe);
+
+app.post("/api/push-test", handlePushTest);
+app.post("/push-test", handlePushTest);
+
+app.post("/api/push-schedule", handlePushSchedule);
+app.post("/push-schedule", handlePushSchedule);
+
