@@ -3,6 +3,15 @@
   "short_name": "Agendei",
   "name": "Agendei - Assistente Executivo",
   "description": "Agenda Inteligente e Transcrição de Reuniões com Inteligência Artificial",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0A1931",
+  "background_color": "#0A1931",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "categories": ["productivity", "business", "utilities"],
   "icons": [
     {
       "src": "/icon-192.png",
@@ -22,13 +31,5 @@
       "type": "image/png",
       "purpose": "maskable"
     }
-  ],
-  "start_url": "/",
-  "scope": "/",
-  "display": "standalone",
-  "theme_color": "#0A1931",
-  "background_color": "#0A1931",
-  "orientation": "portrait",
-  "scope": "/",
-  "categories": ["productivity", "business", "utilities"]
+  ]
 }

@@ -11,7 +11,7 @@ import Markdown from 'react-markdown';
 import { db } from './src/lib/firebase';
 import { collection, addDoc, updateDoc, deleteDoc, doc, setDoc, serverTimestamp, onSnapshot, query, where } from 'firebase/firestore';
 import { 
-  Globe, NotebookPen, Sparkles, Clock, X, Plus, ChevronRight, ChevronLeft, Target, Check, Edit2, Trash2, LayoutGrid, Share2, Download, Bell, Home, Calendar as CalendarIcon, Settings, PhoneCall, Monitor, Info, RefreshCw, Flag
+  Globe, NotebookPen, Sparkles, Clock, X, Plus, ChevronRight, ChevronLeft, Target, Check, Edit2, Trash2, LayoutGrid, Share2, Download, Bell, Home, Calendar as CalendarIcon, Settings, PhoneCall, Monitor, Info, RefreshCw, Flag, Palette
 } from 'lucide-react';
 import { getHolidayForDate, syncHolidaysWithAppointments } from './src/utils/holidays';
 import { 
@@ -20,6 +20,8 @@ import {
   sendTestPushNotification, 
   requestNotificationPermission 
 } from './src/utils/pushNotifications';
+import { ThemeId, getSavedTheme, applyTheme } from './src/utils/theme';
+import { ThemeSelector } from './src/components/ThemeSelector';
 
 const LANGUAGES = [
   { id: 'pt', label: 'BR', flag: '🇧🇷', name: 'Portugues', locale: ptBR },
@@ -213,6 +215,18 @@ const App: React.FC = () => {
   const [installPromptEvent, setInstallPromptEvent] = useState<any>(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [isIOSModalOpen, setIsIOSModalOpen] = useState(false);
+  const [isAndroidModalOpen, setIsAndroidModalOpen] = useState(false);
+  const [currentTheme, setCurrentTheme] = useState<ThemeId>(() => getSavedTheme());
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
+
+  const handleSelectTheme = (themeId: ThemeId) => {
+    setCurrentTheme(themeId);
+    applyTheme(themeId);
+  };
+
+  useEffect(() => {
+    applyTheme(currentTheme);
+  }, [currentTheme]);
   const agendaListRef = useRef<HTMLDivElement>(null);
   const [isPushSubscribed, setIsPushSubscribed] = useState<boolean>(() => {
     return localStorage.getItem('agendei_push_subscribed') === 'true';
@@ -326,7 +340,12 @@ const App: React.FC = () => {
         }
       } catch (e) {
         console.error("Erro ao instalar:", e);
-        alert("Não foi possível instalar automaticamente. Para instalar, abra o menu do seu navegador e selecione 'Adicionar à Tela Inicial'.");
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+        if (isIOS) {
+          setIsIOSModalOpen(true);
+        } else {
+          setIsAndroidModalOpen(true);
+        }
       }
       setInstallPromptEvent(null);
     } else {
@@ -334,7 +353,7 @@ const App: React.FC = () => {
       if (isIOS) {
         setIsIOSModalOpen(true);
       } else {
-        alert("Para instalar, abra o menu do seu navegador e selecione 'Adicionar à Tela Inicial'.");
+        setIsAndroidModalOpen(true);
       }
     }
   };
@@ -1084,17 +1103,74 @@ _Enviado via AGENDEI IA_
             <button onClick={() => setIsIOSModalOpen(false)} className="absolute top-4 right-4 text-white/50 hover:text-white">
               <X size={24} />
             </button>
-            <h3 className="text-xl font-black uppercase text-white mb-6 text-center">Instalar no iOS</h3>
+            <h3 className="text-xl font-black uppercase text-white mb-6 text-center">Instalar no iOS (iPhone)</h3>
             <div className="space-y-4 text-sm font-medium text-blue-100">
               <p className="flex items-center gap-3 bg-white/5 p-4 rounded-xl">
                 <span className="bg-[#1A2B4C] text-[#FDD835] w-6 h-6 rounded-full flex items-center justify-center font-black flex-shrink-0">1</span>
-                <span>Toque no ícone de <strong>Compartilhar</strong> <Share2 size={16} className="inline mx-1 align-text-bottom" /> na barra inferior do Safari.</span>
+                <span>Toque no botão de <strong>Compartilhar</strong> <Share2 size={16} className="inline mx-1 align-text-bottom" /> na barra do Safari.</span>
               </p>
               <p className="flex items-center gap-3 bg-white/5 p-4 rounded-xl">
                 <span className="bg-[#1A2B4C] text-[#FDD835] w-6 h-6 rounded-full flex items-center justify-center font-black flex-shrink-0">2</span>
-                <span>Role para baixo e selecione <strong>"Adicionar à Tela Inicial"</strong> <Plus size={16} className="inline mx-1 align-text-bottom" />.</span>
+                <span>Role para baixo e selecione <strong>"Adicionar à Tela de Início"</strong> <Plus size={16} className="inline mx-1 align-text-bottom" />.</span>
+              </p>
+              <p className="text-[11px] text-white/60 text-center">O Agendei abrirá como app independente com sua logo oficial na tela.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isAndroidModalOpen && (
+        <div className="fixed inset-0 z-[3000] flex flex-col justify-end p-4 animate-in fade-in duration-300">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsAndroidModalOpen(false)}></div>
+          <div className="bg-[#112240] rounded-[2rem] p-6 w-full max-w-sm mx-auto relative shadow-2xl border-t-8 border-t-[#FDD835] mb-4 animate-in slide-in-from-bottom-10">
+            <button onClick={() => setIsAndroidModalOpen(false)} className="absolute top-4 right-4 text-white/50 hover:text-white">
+              <X size={24} />
+            </button>
+            <h3 className="text-xl font-black uppercase text-white mb-6 text-center">Instalar Aplicativo</h3>
+            <div className="space-y-4 text-sm font-medium text-blue-100">
+              <p className="flex items-center gap-3 bg-white/5 p-4 rounded-xl">
+                <span className="bg-[#1A2B4C] text-[#FDD835] w-6 h-6 rounded-full flex items-center justify-center font-black flex-shrink-0">1</span>
+                <span>No Google Chrome, toque no menu de <strong>3 pontos (⋮)</strong> no canto superior direito.</span>
+              </p>
+              <p className="flex items-center gap-3 bg-white/5 p-4 rounded-xl">
+                <span className="bg-[#1A2B4C] text-[#FDD835] w-6 h-6 rounded-full flex items-center justify-center font-black flex-shrink-0">2</span>
+                <span>Selecione <strong>"Instalar aplicativo"</strong> ou <strong>"Adicionar à tela inicial"</strong>.</span>
+              </p>
+              <p className="flex items-center gap-3 bg-white/5 p-4 rounded-xl">
+                <span className="bg-[#1A2B4C] text-[#FDD835] w-6 h-6 rounded-full flex items-center justify-center font-black flex-shrink-0">3</span>
+                <span>Confirme para fixar o ícone oficial do <strong>AGENDEI</strong> e executá-lo sem a barra do navegador.</span>
               </p>
             </div>
+            <button
+              onClick={() => setIsAndroidModalOpen(false)}
+              className="mt-5 w-full py-3 bg-[#FDD835] text-black font-black uppercase text-xs tracking-wider rounded-xl shadow-lg hover:scale-[1.02] active:scale-95 transition-all"
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isThemeModalOpen && (
+        <div className="fixed inset-0 z-[3000] flex flex-col justify-end p-4 animate-in fade-in duration-300">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsThemeModalOpen(false)}></div>
+          <div className="bg-[#112240] rounded-[2rem] p-6 w-full max-w-lg mx-auto relative shadow-2xl border-t-8 border-t-[#FDD835] mb-4 animate-in slide-in-from-bottom-10 max-h-[88vh] overflow-y-auto">
+            <button onClick={() => setIsThemeModalOpen(false)} className="absolute top-4 right-4 text-white/50 hover:text-white">
+              <X size={24} />
+            </button>
+            <div className="mb-4">
+              <h3 className="text-xl font-black uppercase text-white">Aparência do Aplicativo</h3>
+              <p className="text-xs text-white/60 uppercase mt-0.5">Alterne entre os tons de realce em tempo real</p>
+            </div>
+            
+            <ThemeSelector currentTheme={currentTheme} onSelectTheme={handleSelectTheme} />
+
+            <button
+              onClick={() => setIsThemeModalOpen(false)}
+              className="mt-5 w-full py-3 bg-[#FDD835] text-black font-black uppercase text-xs tracking-wider rounded-xl shadow-lg hover:scale-[1.02] active:scale-95 transition-all"
+            >
+              Concluir
+            </button>
           </div>
         </div>
       )}
@@ -1122,9 +1198,24 @@ _Enviado via AGENDEI IA_
           </button>
         )}
 
-        <button className="absolute top-4 right-0 sm:right-2 flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-2 glass-panel rounded-full text-[9px] sm:text-[10px] font-black text-white uppercase tracking-widest hover:bg-[#FDD835] transition-colors">
-          <Globe size={13} /> {selectedLang.label}
-        </button>
+        <div className="absolute top-4 right-0 sm:right-2 flex items-center gap-1.5 sm:gap-2">
+          <button 
+            onClick={() => setIsThemeModalOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 glass-panel rounded-full text-[9px] sm:text-[10px] font-black text-white uppercase tracking-widest hover:border-[#FDD835] hover:text-[#FDD835] transition-all group"
+            title="Alterar Realce de Cores"
+          >
+            <Palette size={13} className="text-[#FDD835] group-hover:rotate-45 transition-transform" />
+            <span className="hidden xs:inline">Cores</span>
+          </button>
+
+          <button 
+            onClick={() => setSelectedLang(prev => prev.id === 'pt' ? LANGUAGES[1] : LANGUAGES[0])}
+            className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 glass-panel rounded-full text-[9px] sm:text-[10px] font-black text-white uppercase tracking-widest hover:bg-[#FDD835] hover:text-black transition-colors"
+            title="Alternar Idioma"
+          >
+            <Globe size={13} /> {selectedLang.label}
+          </button>
+        </div>
       </header>
 
       {activeTab === 'home' ? (
@@ -1569,6 +1660,10 @@ _Enviado via AGENDEI IA_
                     {LANGUAGES.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
                 </div>
+             </div>
+             
+             <div className="glass-panel p-5 rounded-2xl border-2 border-white/5">
+                <ThemeSelector currentTheme={currentTheme} onSelectTheme={handleSelectTheme} />
              </div>
              
              <div className="glass-panel p-5 rounded-2xl border-2 border-white/5">

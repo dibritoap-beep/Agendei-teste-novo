@@ -17,18 +17,30 @@ export default defineConfig(({ mode }) => {
         tailwindcss(),
         VitePWA({
           registerType: 'autoUpdate',
-          includeAssets: ['logo.svg', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'favicon.png', 'favicon.ico', 'icon-512-maskable.png'],
+          includeAssets: [
+            'logo.svg',
+            'icon-192.png',
+            'icon-512.png',
+            'apple-touch-icon.png',
+            'favicon.png',
+            'favicon.ico',
+            'icon-512-maskable.png',
+            'manifest.json',
+            'sw-push.js'
+          ],
           manifest: {
             id: '/',
             name: "Agendei - Assistente Executivo",
             short_name: "Agendei",
             description: "Agenda Inteligente e Transcrição de Reuniões com IA",
+            lang: "pt-BR",
             theme_color: "#0A1931",
             background_color: "#0A1931",
             display: "standalone",
             orientation: "portrait",
             start_url: "/",
             scope: "/",
+            categories: ["productivity", "business", "utilities"],
             icons: [
               {
                 src: "/icon-192.png",
@@ -51,6 +63,7 @@ export default defineConfig(({ mode }) => {
             ]
           },
           workbox: {
+            importScripts: ['/sw-push.js'],
             globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
             runtimeCaching: [
               {

@@ -6,6 +6,10 @@
     <meta name="theme-color" content="#0A1931">
     <meta name="description" content="Assistente de agendamento e transcrição de reuniões por voz com IA.">
     
+    <!-- PWA Web App Manifest -->
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="alternate" type="application/manifest+json" href="/manifest.json">
+
     <!-- PWA & Mobile Web App Meta -->
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -15,24 +19,38 @@
     
     <!-- Icons -->
     <link rel="icon" type="image/svg+xml" href="/logo.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.ico">
+    <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png">
     
     <title>Agendei | Executive</title>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200;300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script>
+      (function() {
+        try {
+          var saved = localStorage.getItem('agendei_color_theme');
+          if (saved && ['original', 'bordo', 'amazonico', 'golden'].indexOf(saved) !== -1) {
+            document.documentElement.setAttribute('data-theme', saved);
+          }
+        } catch(e) {}
+      })();
+    </script>
     <style>
         :root {
-            --exec-navy: #0A1931;
-            --exec-sapphire: #0F52BA;
-            --exec-gold: #FFD700;
-            --bg-light: #0A1931;
-            --glass-bg: rgba(17, 34, 64, 0.75);
-            --glass-border: rgba(255, 215, 0, 0.2);
+            --exec-navy: var(--theme-bg, #0A1931);
+            --exec-sapphire: var(--theme-secondary, #0F52BA);
+            --exec-gold: var(--theme-accent, #FFD700);
+            --bg-light: var(--theme-bg, #0A1931);
+            --glass-bg: var(--theme-panel, rgba(17, 34, 64, 0.75));
+            --glass-border: var(--theme-border, rgba(255, 215, 0, 0.2));
         }
         body { 
             font-family: 'Plus Jakarta Sans', sans-serif; 
-            background: var(--bg-light);
+            background: var(--theme-bg, #0A1931);
             color: #FFFFFF;
             min-height: 100vh;
             overflow-x: hidden;
@@ -50,10 +68,11 @@
             height: 100%;
             z-index: -1;
             background: 
-                radial-gradient(circle at 0% 0%, rgba(255, 215, 0, 0.15) 0%, transparent 40%),
-                radial-gradient(circle at 100% 100%, rgba(15, 82, 186, 0.2) 0%, transparent 40%),
-                radial-gradient(circle at 50% 50%, rgba(17, 34, 64, 0.8) 0%, transparent 60%),
-                var(--bg-light);
+                radial-gradient(circle at 0% 0%, var(--theme-mesh-1, rgba(255, 215, 0, 0.15)) 0%, transparent 40%),
+                radial-gradient(circle at 100% 100%, var(--theme-mesh-2, rgba(15, 82, 186, 0.2)) 0%, transparent 40%),
+                radial-gradient(circle at 50% 50%, var(--theme-mesh-3, rgba(17, 34, 64, 0.8)) 0%, transparent 60%),
+                var(--theme-bg, #0A1931);
+            transition: background 0.3s ease;
         }
     </style>
 </head>

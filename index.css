@@ -1,24 +1,192 @@
 @import "tailwindcss";
 
-/* Global Styles */
+/* ====================================================
+   SISTEMA DE TEMAS E REALCE DE CORES - AGENDEI
+   Temas: Original, Bordô & Rosé, Amazônico e Golden
+   ==================================================== */
 
+:root {
+  --theme-bg: #0A1931;
+  --theme-surface: #1A2B4C;
+  --theme-panel: #112240;
+  --theme-border: #233559;
+  --theme-accent: #FDD835;
+  --theme-accent-hover: #FBC02D;
+  --theme-accent-text: #000000;
+  --theme-secondary: #0F52BA;
+  --theme-mesh-1: rgba(253, 216, 53, 0.12);
+  --theme-mesh-2: rgba(15, 82, 186, 0.22);
+  --theme-mesh-3: rgba(17, 34, 64, 0.85);
+}
+
+[data-theme="bordo"] {
+  --theme-bg: #170A14;
+  --theme-surface: #2B1224;
+  --theme-panel: #3A1831;
+  --theme-border: #542245;
+  --theme-accent: #FB7185;
+  --theme-accent-hover: #F43F5E;
+  --theme-accent-text: #000000;
+  --theme-secondary: #9F1239;
+  --theme-mesh-1: rgba(251, 113, 133, 0.18);
+  --theme-mesh-2: rgba(159, 18, 57, 0.28);
+  --theme-mesh-3: rgba(58, 24, 49, 0.88);
+}
+
+[data-theme="amazonico"] {
+  --theme-bg: #061D17;
+  --theme-surface: #0E2E25;
+  --theme-panel: #143D32;
+  --theme-border: #1D5344;
+  --theme-accent: #34D399;
+  --theme-accent-hover: #10B981;
+  --theme-accent-text: #000000;
+  --theme-secondary: #059669;
+  --theme-mesh-1: rgba(52, 211, 153, 0.18);
+  --theme-mesh-2: rgba(5, 150, 105, 0.28);
+  --theme-mesh-3: rgba(20, 61, 50, 0.88);
+}
+
+[data-theme="golden"] {
+  --theme-bg: #120F08;
+  --theme-surface: #251E11;
+  --theme-panel: #342918;
+  --theme-border: #4D3C22;
+  --theme-accent: #F59E0B;
+  --theme-accent-hover: #D97706;
+  --theme-accent-text: #000000;
+  --theme-secondary: #B45309;
+  --theme-mesh-1: rgba(245, 158, 11, 0.20);
+  --theme-mesh-2: rgba(180, 83, 9, 0.26);
+  --theme-mesh-3: rgba(52, 41, 24, 0.88);
+}
+
+/* Global Styles */
 body {
   margin: 0;
   padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #0A1931;
+  background-color: var(--theme-bg, #0A1931);
   color: white;
+  transition: background-color 0.3s ease;
+}
+
+/* Fundo com Malha Radial Dinâmica */
+.mesh-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  background: 
+    radial-gradient(circle at 0% 0%, var(--theme-mesh-1) 0%, transparent 40%),
+    radial-gradient(circle at 100% 100%, var(--theme-mesh-2) 0%, transparent 40%),
+    radial-gradient(circle at 50% 50%, var(--theme-mesh-3) 0%, transparent 60%),
+    var(--theme-bg, #0A1931);
+  transition: background 0.3s ease;
+}
+
+/* Adaptação de Painéis de Vidro */
+.glass-panel {
+  background: var(--theme-panel, #112240);
+  border-color: var(--theme-border, #233559);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+/* ====================================================
+   REGRAS DE REALCE PARA TEMAS ALTERNATIVOS
+   (Aplicam-se quando o tema não for 'original')
+   ==================================================== */
+
+[data-theme="bordo"] [class*="bg-[#0A1931]"],
+[data-theme="bordo"] [class*="bg-[#0A1526]"],
+[data-theme="amazonico"] [class*="bg-[#0A1931]"],
+[data-theme="amazonico"] [class*="bg-[#0A1526]"],
+[data-theme="golden"] [class*="bg-[#0A1931]"],
+[data-theme="golden"] [class*="bg-[#0A1526]"] {
+  background-color: var(--theme-bg) !important;
+}
+
+[data-theme="bordo"] [class*="bg-[#1A2B4C]"],
+[data-theme="amazonico"] [class*="bg-[#1A2B4C]"],
+[data-theme="golden"] [class*="bg-[#1A2B4C]"] {
+  background-color: var(--theme-surface) !important;
+}
+
+[data-theme="bordo"] [class*="bg-[#112240]"],
+[data-theme="amazonico"] [class*="bg-[#112240]"],
+[data-theme="golden"] [class*="bg-[#112240]"] {
+  background-color: var(--theme-panel) !important;
+}
+
+[data-theme="bordo"] [class*="border-[#233559]"],
+[data-theme="bordo"] [class*="border-[#1A2B4C]"],
+[data-theme="amazonico"] [class*="border-[#233559]"],
+[data-theme="amazonico"] [class*="border-[#1A2B4C]"],
+[data-theme="golden"] [class*="border-[#233559]"],
+[data-theme="golden"] [class*="border-[#1A2B4C]"] {
+  border-color: var(--theme-border) !important;
+}
+
+/* Realce Principal (Botões, Badges, Ícones, Títulos) */
+[data-theme="bordo"] [class*="bg-[#FDD835]"],
+[data-theme="bordo"] [class*="bg-[#FFD700]"],
+[data-theme="bordo"] [class*="bg-[#B8860B]"],
+[data-theme="amazonico"] [class*="bg-[#FDD835]"],
+[data-theme="amazonico"] [class*="bg-[#FFD700]"],
+[data-theme="amazonico"] [class*="bg-[#B8860B]"],
+[data-theme="golden"] [class*="bg-[#FDD835]"],
+[data-theme="golden"] [class*="bg-[#FFD700]"],
+[data-theme="golden"] [class*="bg-[#B8860B]"] {
+  background-color: var(--theme-accent) !important;
+}
+
+[data-theme="bordo"] [class*="text-[#FDD835]"],
+[data-theme="bordo"] [class*="text-[#FFD700]"],
+[data-theme="bordo"] [class*="text-[#B8860B]"],
+[data-theme="amazonico"] [class*="text-[#FDD835]"],
+[data-theme="amazonico"] [class*="text-[#FFD700]"],
+[data-theme="amazonico"] [class*="text-[#B8860B]"],
+[data-theme="golden"] [class*="text-[#FDD835]"],
+[data-theme="golden"] [class*="text-[#FFD700]"],
+[data-theme="golden"] [class*="text-[#B8860B]"] {
+  color: var(--theme-accent) !important;
+}
+
+[data-theme="bordo"] [class*="border-[#FDD835]"],
+[data-theme="bordo"] [class*="border-[#FFD700]"],
+[data-theme="bordo"] [class*="border-[#B8860B]"],
+[data-theme="amazonico"] [class*="border-[#FDD835]"],
+[data-theme="amazonico"] [class*="border-[#FFD700]"],
+[data-theme="amazonico"] [class*="border-[#B8860B]"],
+[data-theme="golden"] [class*="border-[#FDD835]"],
+[data-theme="golden"] [class*="border-[#FFD700]"],
+[data-theme="golden"] [class*="border-[#B8860B]"] {
+  border-color: var(--theme-accent) !important;
+}
+
+/* Sombra e Efeito da Logo AGENDEI nos Temas */
+[data-theme="bordo"] .logo-executive {
+  color: var(--theme-accent) !important;
+  text-shadow: 0 0 25px rgba(251, 113, 133, 0.45) !important;
+}
+[data-theme="amazonico"] .logo-executive {
+  color: var(--theme-accent) !important;
+  text-shadow: 0 0 25px rgba(52, 211, 153, 0.45) !important;
+}
+[data-theme="golden"] .logo-executive {
+  color: var(--theme-accent) !important;
+  text-shadow: 0 0 25px rgba(245, 158, 11, 0.45) !important;
 }
 
 /* Markdown Styles */
 .markdown-body h2 {
   font-size: 1.25rem;
   font-weight: 800;
-  color: #FFD700;
+  color: var(--theme-accent, #FFD700);
   margin-top: 1.5rem;
   margin-bottom: 0.75rem;
   text-transform: uppercase;
@@ -67,4 +235,3 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
-
