@@ -95,6 +95,15 @@ window.addEventListener('unhandledrejection', (event) => {
   console.error("Rejeição não tratada:", event.reason);
   showFatalError("Falha Assíncrona", reasonStr);
 });
+// Direct mirror standalone redirect for executive phones
+const isStandalone = typeof window !== 'undefined' && (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true);
+const savedMirrorId = typeof localStorage !== 'undefined' ? localStorage.getItem('agendei_standalone_mirror_id') : null;
+const isMirrorOnly = typeof localStorage !== 'undefined' ? localStorage.getItem('agendei_mirror_only_mode') === 'true' : false;
+
+if (typeof window !== 'undefined' && window.location.pathname === '/' && savedMirrorId && isStandalone && isMirrorOnly && !window.location.search.includes('admin')) {
+  window.location.replace(`/mirror/${savedMirrorId}`);
+}
+
 // Mounting
 const root = ReactDOM.createRoot(rootElement);
 root.render(

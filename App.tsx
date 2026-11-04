@@ -2348,7 +2348,7 @@ _Enviado via AGENDEI_`.trim();
             
             <h3 className="text-2xl font-black uppercase text-white mb-2 tracking-tighter">Espelhamento</h3>
             <p className="text-[11px] font-bold text-white/50 mb-8 uppercase tracking-widest leading-relaxed">
-              Compartilhe sua agenda em tempo real com executivos e diretores.
+              Compartilhe sua agenda em tempo real com executivos e diretores. Eles podem inclusive instalar um atalho exclusivo no celular para abrir direto no espelhamento.
             </p>
 
             {!mirrorId ? (
@@ -2388,7 +2388,7 @@ _Enviado via AGENDEI_`.trim();
                     if (navigator.share) {
                       navigator.share({
                         title: 'Agendei - Espelhamento Executivo',
-                        text: 'Acompanhe minha agenda em tempo real.',
+                        text: 'Acompanhe minha agenda em tempo real no AGENDEI. Você pode instalar o atalho na tela do seu celular para acompanhar diretamente!',
                         url: `${window.location.origin}/mirror/${mirrorId}`
                       }).catch(e => console.error("Share error:", e));
                     }

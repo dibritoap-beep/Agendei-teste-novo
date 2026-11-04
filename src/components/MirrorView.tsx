@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import { format } from 'date-fns';
+import { format, addDays, subDays, isToday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { db } from '../lib/firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
@@ -8,7 +8,7 @@ import Markdown from 'react-markdown';
 import { 
   NotebookPen, Sparkles, Calendar as CalendarIcon, 
   ChevronLeft, ChevronRight, Info, RefreshCw, LayoutGrid, List, FileText,
-  Home, Share2, X
+  Home, Share2, X, Smartphone, Download, Check, HelpCircle, ArrowUpRight
 } from 'lucide-react';
 
 const RarbCodingLogo = () => (
@@ -41,6 +41,65 @@ const MirrorView: React.FC = () => {
   const [activeTab, setActiveTab] = useState('home');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [selectedReportApp, setSelectedReportApp] = useState<any | null>(null);
+  
+  // PWA & Shortcut state for mirror screen
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
+  const [isCopiedLink, setIsCopiedLink] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
+
+  useEffect(() => {
+    // Check if running as standalone PWA
+    const checkStandalone = () => {
+      const standalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
+      setIsStandalone(standalone);
+    };
+    checkStandalone();
+
+    // Store mirror ID for direct standalone access
+    if (mirrorId) {
+      localStorage.setItem('agendei_standalone_mirror_id', mirrorId.trim());
+      localStorage.setItem('agendei_mirror_only_mode', 'true');
+    }
+
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+    };
+  }, [mirrorId]);
+
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      try {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === 'accepted') {
+          setDeferredPrompt(null);
+        }
+      } catch (err) {
+        console.error("Erro ao solicitar instalação PWA:", err);
+        setIsInstallModalOpen(true);
+      }
+    } else {
+      setIsInstallModalOpen(true);
+    }
+  };
+
+  const copyDirectMirrorLink = async () => {
+    const url = window.location.href;
+    try {
+      await navigator.clipboard.writeText(url);
+      setIsCopiedLink(true);
+      setTimeout(() => setIsCopiedLink(false), 2500);
+    } catch (e) {
+      console.error("Clipboard error:", e);
+    }
+  };
 
   const handleShare = async (e: React.MouseEvent, app: any) => {
     e.stopPropagation();
@@ -84,30 +143,45 @@ const MirrorView: React.FC = () => {
     }
   };
 
-  const scheduledDates = useMemo(() => {
-    const dates = appointments.map(app => app.date);
-    return Array.from(new Set(dates)).sort();
-  }, [appointments]);
+  // Date Navigation Handlers
+  const handlePrevDay = () => {
+    setSelectedDate(prev => subDays(prev, 1));
+  };
 
-  const goToPreviousScheduledDay = () => {
-    const currentDateStr = format(selectedDate, 'yyyy-MM-dd');
-    const prevDates = scheduledDates.filter(date => date < currentDateStr);
-    if (prevDates.length > 0) {
-      const prevDateStr = prevDates[prevDates.length - 1];
-      setSelectedDate(new Date(`${prevDateStr}T12:00:00`));
+  const handleNextDay = () => {
+    setSelectedDate(prev => addDays(prev, 1));
+  };
+
+  const handleToday = () => {
+    setSelectedDate(new Date());
+  };
+
+  const handlePrevEventDate = () => {
+    for (let i = 1; i <= 365; i++) {
+      const prevD = subDays(selectedDate, i);
+      const prevStr = format(prevD, 'yyyy-MM-dd');
+      const hasApp = appointments.some(a => a.date === prevStr);
+      if (hasApp) {
+        setSelectedDate(prevD);
+        return;
+      }
     }
   };
 
-  const goToNextScheduledDay = () => {
-    const currentDateStr = format(selectedDate, 'yyyy-MM-dd');
-    const nextDateStr = scheduledDates.find(date => date > currentDateStr);
-    if (nextDateStr) {
-      setSelectedDate(new Date(`${nextDateStr}T12:00:00`));
+  const handleNextEventDate = () => {
+    for (let i = 1; i <= 365; i++) {
+      const nextD = addDays(selectedDate, i);
+      const nextStr = format(nextD, 'yyyy-MM-dd');
+      const hasApp = appointments.some(a => a.date === nextStr);
+      if (hasApp) {
+        setSelectedDate(nextD);
+        return;
+      }
     }
   };
 
   useEffect(() => {
-    console.log("MirrorView: Tentando conectar ao mirrorId:", mirrorId);
+    console.log("MirrorView: Conectando ao mirrorId:", mirrorId);
     if (!mirrorId) {
       setError("ID de espelhamento não fornecido.");
       setLoading(false);
@@ -156,7 +230,7 @@ const MirrorView: React.FC = () => {
         });
 
         const sortedApps = apps.sort((a, b) => a.data_inicio_raw.getTime() - b.data_inicio_raw.getTime());
-        console.log("MirrorView: Compromissos processados e ordenados.");
+        console.log("MirrorView: Compromissos sincronizados com sucesso.");
         setAppointments(sortedApps);
         setLoading(false);
         setError(null);
@@ -215,10 +289,10 @@ const MirrorView: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#0A1931] flex flex-col text-[var(--text-main)] selection:bg-[var(--brand)] selection:text-black">
       <div className="max-w-2xl mx-auto w-full px-4 sm:px-6 md:px-8 pb-24">
-        {/* Header Oficial */}
+        {/* Header Oficial do Painel */}
         <header className="pt-8 pb-4 flex flex-col items-center relative w-full">
           <div className="mb-3 relative">
-            <div className="w-[72px] h-[72px] bg-[var(--bg-card)] border-2 border-[var(--brand)] rounded-full flex items-center justify-center text-[var(--text-main)] shadow-[0_0_20px_rgba(253,216,53,0.4)]">
+            <div className="w-[72px] h-[72px] bg-[#112240] border-2 border-[var(--brand)] rounded-full flex items-center justify-center text-[var(--text-main)] shadow-[0_0_20px_rgba(253,216,53,0.4)]">
               <NotebookPen size={36} strokeWidth={2.5} />
             </div>
             <div className="absolute -bottom-1 -right-1 w-7 h-7 bg-[var(--brand)] rounded-full flex items-center justify-center border-2 border-[#112240]">
@@ -226,61 +300,174 @@ const MirrorView: React.FC = () => {
             </div>
           </div>
           
-          <h1 className="text-[46px] sm:text-[58px] font-semibold logo-executive leading-none tracking-tighter text-center mt-2 text-[var(--brand)]">AGENDEI</h1>
-          <p className="text-[10.5px] sm:text-[11.5px] font-semibold text-[var(--text-main)] uppercase tracking-[0.3em] sm:tracking-[0.4em] mt-1.5 text-center">Visualização Executiva</p>
+          <h1 className="text-[46px] sm:text-[58px] font-black logo-executive leading-none tracking-tighter text-center mt-2 text-[var(--brand)]">AGENDEI</h1>
+          <p className="text-[10.5px] sm:text-[11.5px] font-black text-white uppercase tracking-[0.3em] sm:tracking-[0.4em] mt-1.5 text-center">Visualização Executiva</p>
           
-          <div className="mt-6 flex items-center gap-2 px-3 py-1 bg-[var(--brand)]/10 border border-[var(--brand)]/20 rounded-full">
+          <div className="mt-4 flex items-center gap-2 px-3 py-1 bg-[var(--brand)]/10 border border-[var(--brand)]/30 rounded-full">
             <div className="w-2 h-2 bg-[var(--brand)] rounded-full animate-pulse"></div>
             <span className="text-[9px] font-black uppercase tracking-widest text-[var(--brand)]">Espelhamento em Tempo Real</span>
           </div>
         </header>
 
+        {/* Banner do Instalador / Atalho de Espelhamento no Celular */}
+        {!isStandalone ? (
+          <div className="w-full bg-[#112240] border-2 border-[var(--brand)]/40 rounded-2xl p-3 sm:p-4 mb-6 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <div className="w-10 h-10 rounded-xl bg-[var(--brand)]/15 border border-[var(--brand)]/50 flex items-center justify-center text-[var(--brand)] flex-shrink-0">
+                <Smartphone size={22} />
+              </div>
+              <div className="text-left flex-1">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs sm:text-sm font-black uppercase text-white tracking-wider">
+                    Atalho na Tela do Celular
+                  </h4>
+                  <span className="text-[8.5px] bg-[var(--brand)] text-black font-black px-1.5 py-0.2 rounded uppercase">
+                    Exclusivo
+                  </span>
+                </div>
+                <p className="text-[10px] sm:text-[11px] text-white/70 font-medium">
+                  Instale no seu aparelho para abrir sempre direto neste espelhamento
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+              <button
+                onClick={handleInstallClick}
+                className="flex-1 sm:flex-none px-3.5 py-2.5 bg-[var(--brand)] hover:brightness-110 text-black font-black uppercase text-[10px] tracking-wider rounded-xl shadow-lg transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+              >
+                <Download size={14} /> Instalar Atalho
+              </button>
+              <button
+                onClick={() => setIsInstallModalOpen(true)}
+                className="p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-all cursor-pointer"
+                title="Instruções de instalação para iPhone e Android"
+              >
+                <HelpCircle size={16} />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mb-4 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between">
+            <div className="flex items-center gap-2 text-emerald-400">
+              <Check size={14} className="font-bold" />
+              <span className="text-[9px] font-black uppercase tracking-wider">Modo Aplicativo Dedicado Ativo</span>
+            </div>
+            <span className="text-[8.5px] text-emerald-300 font-bold uppercase tracking-widest">Painel Direto</span>
+          </div>
+        )}
+
         {/* Tabs Principais */}
-        <div className="flex bg-[var(--bg-card)] p-1.5 rounded-2xl border border-[var(--border-subtle)] mb-8 shadow-inner relative z-10 mt-4">
+        <div className="flex bg-[#112240] p-1.5 rounded-2xl border border-[var(--border-subtle)] mb-6 shadow-inner relative z-10">
           <button 
             onClick={() => setActiveTab('home')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all duration-300 font-bold text-[10px] tracking-[0.2em] uppercase ${activeTab === 'home' ? 'bg-[var(--brand)] text-black shadow-lg scale-[1.02]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5'}`}>
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all duration-300 font-black text-[10px] tracking-[0.2em] uppercase cursor-pointer ${activeTab === 'home' ? 'bg-[var(--brand)] text-black shadow-lg scale-[1.02]' : 'text-white/60 hover:text-white hover:bg-white/5'}`}>
             <Home size={14} strokeWidth={2.5} />
             HOJE
           </button>
           <button 
             onClick={() => setActiveTab('agenda')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all duration-300 font-bold text-[10px] tracking-[0.2em] uppercase ${activeTab === 'agenda' ? 'bg-[var(--brand)] text-black shadow-lg scale-[1.02]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5'}`}>
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all duration-300 font-black text-[10px] tracking-[0.2em] uppercase cursor-pointer ${activeTab === 'agenda' ? 'bg-[var(--brand)] text-black shadow-lg scale-[1.02]' : 'text-white/60 hover:text-white hover:bg-white/5'}`}>
             <List size={14} strokeWidth={2.5} />
             PRÓXIMOS
           </button>
           <button 
             onClick={() => setActiveTab('reports')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all duration-300 font-bold text-[10px] tracking-[0.2em] uppercase ${activeTab === 'reports' ? 'bg-[var(--brand)] text-black shadow-lg scale-[1.02]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5'}`}>
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all duration-300 font-black text-[10px] tracking-[0.2em] uppercase cursor-pointer ${activeTab === 'reports' ? 'bg-[var(--brand)] text-black shadow-lg scale-[1.02]' : 'text-white/60 hover:text-white hover:bg-white/5'}`}>
             <FileText size={14} strokeWidth={2.5} />
             RELATÓRIOS
           </button>
         </div>
 
-        {/* Navegação de Data */}
+        {/* Navegação de Data com Rolagem Temporal Completa (Adiantar e Retardar) */}
         {activeTab === 'home' && (
-          <div className="flex items-center justify-between mb-8 px-2">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-[var(--bg-card)] border border-[var(--brand)]/30 rounded-2xl flex items-center justify-center text-[var(--brand)] shadow-lg">
-                <CalendarIcon size={20} />
+          <div className="mb-6 space-y-3">
+            {/* Cabeçalho do Bloco */}
+            <div className="flex items-center justify-between px-1">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-[#112240] border border-[var(--brand)]/40 rounded-2xl flex items-center justify-center text-[var(--brand)] shadow-lg">
+                  <CalendarIcon size={20} />
+                </div>
+                <div className="flex flex-col">
+                  <h3 className="text-lg sm:text-xl font-bold uppercase text-[var(--text-main)] tracking-tight leading-tight">Compromissos do Dia</h3>
+                  <span className="text-[11px] font-black uppercase tracking-wider text-[var(--brand)]">
+                    {format(selectedDate, "dd/MM/yyyy")}
+                  </span>
+                </div>
               </div>
-              <div className="flex flex-col">
-                <h3 className="text-xl font-bold uppercase text-[var(--text-main)] tracking-tighter leading-tight">Compromissos</h3>
-                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-[var(--brand)] opacity-80">
-                  {format(selectedDate, "eeee, dd/MM/yyyy", { locale: ptBR })}
-                </p>
-              </div>
+
+              {!isToday(selectedDate) && (
+                <button
+                  onClick={handleToday}
+                  className="px-3 py-1.5 bg-[var(--brand)] text-black rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+                  title="Voltar para Hoje"
+                >
+                  Hoje
+                </button>
+              )}
             </div>
-            <div className="flex items-center gap-2">
-              <button onClick={goToPreviousScheduledDay} className="w-10 h-10 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl flex items-center justify-center text-[var(--text-main)] hover:bg-[var(--bg-card-alt)] transition-all">
-                <ChevronLeft size={20} />
-              </button>
-              <button onClick={() => setSelectedDate(new Date())} className="px-3 h-10 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl flex items-center justify-center text-[var(--text-main)] text-[10px] font-bold uppercase tracking-widest hover:bg-[var(--bg-card-alt)] transition-all">
-                Hoje
-              </button>
-              <button onClick={goToNextScheduledDay} className="w-10 h-10 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl flex items-center justify-center text-[var(--text-main)] hover:bg-[var(--bg-card-alt)] transition-all">
-                <ChevronRight size={20} />
-              </button>
+
+            {/* Barra de Navegação Temporal Unificada (Anterior, Próximo, Pulos de Evento) */}
+            <div className="bg-[#112240] border border-[#233559] rounded-2xl p-2 sm:p-2.5 flex items-center justify-between gap-1.5 shadow-lg">
+              <div className="flex items-center gap-1 sm:gap-1.5">
+                <button
+                  onClick={handlePrevEventDate}
+                  className="p-2 sm:px-2.5 sm:py-2 bg-[#1A2B4C] hover:bg-[#233559] text-white/80 hover:text-white rounded-xl border border-white/5 transition-all text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 active:scale-95 cursor-pointer"
+                  title="Pular para compromisso anterior"
+                >
+                  <ChevronLeft size={14} />
+                  <span className="hidden sm:inline">Evento Ant.</span>
+                  <span className="sm:hidden text-[9px]">Ant.</span>
+                </button>
+                <button
+                  onClick={handlePrevDay}
+                  className="p-2 sm:px-3 sm:py-2 bg-[#1A2B4C] hover:bg-[var(--brand)] hover:text-black text-white rounded-xl border border-white/10 flex items-center gap-1.5 transition-all text-xs font-black uppercase shadow-sm group active:scale-95 cursor-pointer"
+                  title="Dia Anterior (Retardar)"
+                >
+                  <ChevronLeft size={18} className="group-hover:-translate-x-0.5 transition-transform" />
+                  <span className="hidden xs:inline sm:inline">Anterior</span>
+                </button>
+              </div>
+
+              {/* Indicador Central da Data Selecionada */}
+              <div 
+                onClick={handleToday}
+                className="flex flex-col items-center text-center cursor-pointer px-1.5 py-1 rounded-xl hover:bg-white/5 transition-all"
+                title="Clique para voltar para Hoje"
+              >
+                <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap justify-center">
+                  <span className="text-[12px] sm:text-[14px] font-black text-white uppercase tracking-tight">
+                    {format(selectedDate, "dd 'de' MMMM", { locale: ptBR })}
+                  </span>
+                  {isToday(selectedDate) && (
+                    <span className="text-[8px] sm:text-[8.5px] bg-[var(--brand)] text-black font-black px-1.5 py-0.5 rounded uppercase">
+                      Hoje
+                    </span>
+                  )}
+                </div>
+                <span className="text-[9px] sm:text-[10px] font-bold text-white/60 uppercase tracking-wider mt-0.5">
+                  {format(selectedDate, "EEEE, yyyy", { locale: ptBR })}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1 sm:gap-1.5">
+                <button
+                  onClick={handleNextDay}
+                  className="p-2 sm:px-3 sm:py-2 bg-[#1A2B4C] hover:bg-[var(--brand)] hover:text-black text-white rounded-xl border border-white/10 flex items-center gap-1.5 transition-all text-xs font-black uppercase shadow-sm group active:scale-95 cursor-pointer"
+                  title="Próximo Dia (Adiantar)"
+                >
+                  <span className="hidden xs:inline sm:inline">Próximo</span>
+                  <ChevronRight size={18} className="group-hover:translate-x-0.5 transition-transform" />
+                </button>
+                <button
+                  onClick={handleNextEventDate}
+                  className="p-2 sm:px-2.5 sm:py-2 bg-[#1A2B4C] hover:bg-[#233559] text-white/80 hover:text-white rounded-xl border border-white/5 transition-all text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 active:scale-95 cursor-pointer"
+                  title="Pular para próximo compromisso"
+                >
+                  <span className="hidden sm:inline">Próx. Evento</span>
+                  <span className="sm:hidden text-[9px]">Próx.</span>
+                  <ChevronRight size={14} />
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -303,26 +490,26 @@ const MirrorView: React.FC = () => {
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 px-2 py-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-[9px] font-bold text-black/40 uppercase tracking-wider">Status:</span>
-                      <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${app.hasReport ? 'text-green-700 bg-green-600/10' : 'text-black/60 bg-black/5'}`}>
+                      <span className="text-[9px] font-bold text-black/50 uppercase tracking-wider">Status:</span>
+                      <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${app.hasReport ? 'text-green-800 bg-green-600/20' : 'text-black/70 bg-black/5'}`}>
                         {app.hasReport ? 'CONCLUÍDO' : 'PENDENTE'}
                       </span>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <span className="text-[9px] font-bold text-black/40 uppercase tracking-wider">Categoria:</span>
-                      <span className="text-[9px] font-bold text-black/80 uppercase">{app.category || 'Geral'}</span>
+                      <span className="text-[9px] font-bold text-black/50 uppercase tracking-wider">Categoria:</span>
+                      <span className="text-[9px] font-bold text-black/90 uppercase">{app.category || 'Geral'}</span>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <span className="text-[9px] font-bold text-black/40 uppercase tracking-wider">Local:</span>
-                      <span className="text-[9px] font-bold text-black/80 uppercase">{app.location || 'Não Definido'}</span>
+                      <span className="text-[9px] font-bold text-black/50 uppercase tracking-wider">Local:</span>
+                      <span className="text-[9px] font-bold text-black/90 uppercase">{app.location || 'Não Definido'}</span>
                     </div>
 
                     {app.description && (
                       <div className="flex items-start gap-2 sm:col-span-2">
-                        <span className="text-[9px] font-semibold text-black/40 uppercase tracking-wider whitespace-nowrap">Pautas:</span>
-                        <span className="text-[9px] font-semibold text-black/60 uppercase line-clamp-2">{app.description}</span>
+                        <span className="text-[9px] font-semibold text-black/50 uppercase tracking-wider whitespace-nowrap">Pautas:</span>
+                        <span className="text-[9px] font-semibold text-black/80 uppercase line-clamp-2">{app.description}</span>
                       </div>
                     )}
                   </div>
@@ -376,11 +563,96 @@ const MirrorView: React.FC = () => {
           ) : (
             <div className="py-20 bg-[#FEF9C3] rounded-[2.5rem] flex flex-col items-center justify-center border-dashed border-2 border-yellow-300 shadow-xl text-center px-6">
               <LayoutGrid size={40} className="mb-4 text-[#FDD835]/40" />
-              <h3 className="text-sm font-bold text-black/30 uppercase tracking-[0.4em] mb-2">Nada Agendado</h3>
-              <p className="text-[10px] text-black/20 uppercase tracking-widest leading-relaxed max-w-[200px]">Não há registros para exibição neste período.</p>
+              <h3 className="text-sm font-bold text-black/40 uppercase tracking-[0.4em] mb-2">Nada Agendado</h3>
+              <p className="text-[10px] text-black/30 uppercase tracking-widest leading-relaxed max-w-[200px]">Não há registros para exibição neste período.</p>
             </div>
           )}
         </main>
+
+        {/* Modal de Instalação e Atalho do Espelhamento */}
+        {isInstallModalOpen && (
+          <div className="fixed inset-0 z-[2000] flex items-end sm:items-center justify-center p-3 sm:p-4 pb-0 sm:pb-8 animate-in fade-in duration-300">
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setIsInstallModalOpen(false)}></div>
+            <div className="w-full max-w-md bg-[#0A1931] border-2 border-[var(--brand)]/50 rounded-t-[2.5rem] sm:rounded-[2.5rem] p-6 sm:p-7 relative shadow-2xl z-10 text-white animate-in slide-in-from-bottom-10">
+              <button
+                onClick={() => setIsInstallModalOpen(false)}
+                className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full text-white/80 hover:text-white transition-all cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 rounded-2xl bg-[var(--brand)]/20 border border-[var(--brand)] flex items-center justify-center text-[var(--brand)]">
+                  <Smartphone size={24} />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black uppercase text-[var(--brand)] tracking-tight">
+                    Instalar Painel no Celular
+                  </h3>
+                  <p className="text-[10px] uppercase tracking-wider text-white/60">
+                    Acesso rápido exclusivo para a tela espelhada
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-[11.5px] text-white/80 leading-relaxed mb-4">
+                Ao adicionar este atalho à tela de início do seu aparelho, você terá um aplicativo independente que abre <strong>apenas o painel de espelhamento em tempo real</strong>, sem barras de navegador.
+              </p>
+
+              <div className="space-y-3.5 mb-5 text-[11px] text-blue-100 font-medium">
+                <div className="bg-[#112240] p-3.5 rounded-2xl border border-white/10 space-y-2">
+                  <div className="flex items-center gap-2 text-[var(--brand)] font-bold text-[10px] uppercase tracking-wider">
+                    <span>🍎 No iPhone (Safari):</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-white/80">
+                    <span className="w-5 h-5 rounded-full bg-[var(--brand)]/20 text-[var(--brand)] flex items-center justify-center font-bold flex-shrink-0 text-[10px]">1</span>
+                    <span>Toque no botão <strong>Compartilhar</strong> (quadrado com seta para cima) na barra inferior do Safari.</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-white/80">
+                    <span className="w-5 h-5 rounded-full bg-[var(--brand)]/20 text-[var(--brand)] flex items-center justify-center font-bold flex-shrink-0 text-[10px]">2</span>
+                    <span>Role a tela e toque em <strong>"Adicionar à Tela de Início"</strong> (+).</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-white/80">
+                    <span className="w-5 h-5 rounded-full bg-[var(--brand)]/20 text-[var(--brand)] flex items-center justify-center font-bold flex-shrink-0 text-[10px]">3</span>
+                    <span>Toque em <strong>Adicionar</strong> no canto superior direito para fixar o atalho.</span>
+                  </div>
+                </div>
+
+                <div className="bg-[#112240] p-3.5 rounded-2xl border border-white/10 space-y-2">
+                  <div className="flex items-center gap-2 text-[var(--brand)] font-bold text-[10px] uppercase tracking-wider">
+                    <span>🤖 No Android (Chrome / Samsung):</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-white/80">
+                    <span className="w-5 h-5 rounded-full bg-[var(--brand)]/20 text-[var(--brand)] flex items-center justify-center font-bold flex-shrink-0 text-[10px]">1</span>
+                    <span>Toque no menu de <strong>3 pontinhos (⋮)</strong> no canto superior direito do navegador.</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-white/80">
+                    <span className="w-5 h-5 rounded-full bg-[var(--brand)]/20 text-[var(--brand)] flex items-center justify-center font-bold flex-shrink-0 text-[10px]">2</span>
+                    <span>Selecione <strong>"Instalar aplicativo"</strong> ou <strong>"Adicionar à tela inicial"</strong>.</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                {deferredPrompt && (
+                  <button
+                    onClick={handleInstallClick}
+                    className="w-full py-3.5 bg-[var(--brand)] hover:brightness-110 text-black font-black uppercase text-xs tracking-wider rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+                  >
+                    <Download size={16} /> Instalar Diretamente Agora
+                  </button>
+                )}
+                <button
+                  onClick={copyDirectMirrorLink}
+                  className="w-full py-3 bg-white/10 hover:bg-white/20 text-white font-black uppercase text-[10px] tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+                >
+                  {isCopiedLink ? <Check size={14} className="text-emerald-400" /> : <Share2 size={14} />}
+                  <span>{isCopiedLink ? 'Link Copiado com Sucesso!' : 'Copiar Link Direto do Espelhamento'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Modal de Memória da Reunião no Espelhamento */}
         {selectedReportApp && (
