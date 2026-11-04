@@ -142,6 +142,14 @@ body {
 [data-theme="golden"] [class*="bg-[#FFD700]"],
 [data-theme="golden"] [class*="bg-[#B8860B]"] {
   background-color: var(--theme-accent) !important;
+  color: #000000 !important;
+}
+
+/* Garante legibilidade do texto dentro de qualquer botão ou badge com a cor de destaque */
+[data-theme] [class*="bg-[#FDD835]"] *,
+[data-theme] [class*="bg-[#FFD700]"] *,
+[data-theme] [class*="bg-[#B8860B]"] * {
+  color: #000000 !important;
 }
 
 [data-theme="bordo"] [class*="text-[#FDD835]"],
@@ -166,6 +174,48 @@ body {
 [data-theme="golden"] [class*="border-[#FFD700]"],
 [data-theme="golden"] [class*="border-[#B8860B]"] {
   border-color: var(--theme-accent) !important;
+}
+
+/* ====================================================
+   GARANTIA DE CONTRASTE E VISIBILIDADE DAS LETRAS
+   (Evita que textos fiquem apagados nos temas escuros)
+   ==================================================== */
+
+/* Textos secundários esmaecidos (white/40, white/50, white/60, text-slate-400) */
+[data-theme] [class*="text-white/30"],
+[data-theme] [class*="text-white/40"] {
+  color: rgba(255, 255, 255, 0.72) !important;
+}
+
+[data-theme] [class*="text-white/50"],
+[data-theme] [class*="text-white/60"],
+[data-theme] [class*="text-slate-400"],
+[data-theme] [class*="text-blue-300"] {
+  color: rgba(255, 255, 255, 0.88) !important;
+}
+
+[data-theme] [class*="text-blue-200"],
+[data-theme] [class*="text-blue-100"] {
+  color: rgba(255, 255, 255, 0.95) !important;
+}
+
+/* Botões com fundo de superfície (ex: Evento Ant., Próx. Evento) */
+[data-theme] .bg-\[\#1A2B4C\],
+[data-theme] .bg-\[\#112240\],
+[data-theme] .bg-\[\#0A1526\] {
+  color: #FFFFFF !important;
+}
+
+[data-theme] .bg-\[\#1A2B4C\] span,
+[data-theme] .bg-\[\#112240\] span,
+[data-theme] .bg-\[\#0A1526\] span {
+  color: #FFFFFF !important;
+}
+
+/* Botões de Ação com borda */
+[data-theme] [class*="border-white/5"],
+[data-theme] [class*="border-white/10"] {
+  border-color: rgba(255, 255, 255, 0.18) !important;
 }
 
 /* Sombra e Efeito da Logo AGENDEI nos Temas */
