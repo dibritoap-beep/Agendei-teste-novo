@@ -5,13 +5,13 @@ import VoiceAssistant from './components/VoiceAssistant';
 import MeetingManager from './components/MeetingManager';
 import AdBanner from './components/AdBanner';
 import { format, addDays, subDays, isToday, isSameDay } from 'date-fns';
-import { ptBR, enUS } from 'date-fns/locale';
+import { ptBR } from 'date-fns/locale';
 import { jsPDF } from 'jspdf';
 import Markdown from 'react-markdown';
 import { db } from './src/lib/firebase';
 import { collection, addDoc, updateDoc, deleteDoc, doc, setDoc, serverTimestamp, onSnapshot, query, where } from 'firebase/firestore';
 import { 
-  Globe, NotebookPen, Sparkles, Clock, X, Plus, ChevronRight, ChevronLeft, Target, Check, Edit2, Trash2, LayoutGrid, Share2, Download, Bell, Home, Calendar as CalendarIcon, Settings, PhoneCall, Monitor, Info, RefreshCw, Flag, Palette
+  Globe, NotebookPen, Sparkles, Clock, X, Plus, ChevronRight, ChevronLeft, Target, Check, Edit2, Trash2, LayoutGrid, Share2, Download, Bell, Home, Calendar as CalendarIcon, Settings, PhoneCall, Monitor, Info, RefreshCw, Flag, Palette, FileText
 } from 'lucide-react';
 import { getHolidayForDate, syncHolidaysWithAppointments } from './src/utils/holidays';
 import { 
@@ -24,8 +24,7 @@ import { ThemeId, getSavedTheme, applyTheme } from './src/utils/theme';
 import { ThemeSelector } from './src/components/ThemeSelector';
 
 const LANGUAGES = [
-  { id: 'pt', label: 'BR', flag: '🇧🇷', name: 'Portugues', locale: ptBR },
-  { id: 'en', label: 'EN', flag: '🇺🇸', name: 'English', locale: enUS },
+  { id: 'pt', label: 'BR', flag: '🇧🇷', name: 'Português', locale: ptBR },
 ];
 
 const RarbCodingLogo = () => (
@@ -58,7 +57,9 @@ const App: React.FC = () => {
         if (Array.isArray(parsed)) {
           const loaded = parsed.map((app: Appointment) => ({
             ...app,
-            reminders: app.reminders || [1440, 60]
+            reminders: Array.isArray(app.reminders) && app.reminders.length > 0
+              ? app.reminders.filter(r => [1440, 120, 60].includes(r))
+              : [1440]
           }));
           return syncHolidaysWithAppointments(loaded);
         }
@@ -91,7 +92,7 @@ const App: React.FC = () => {
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
-  const [manualForm, setManualForm] = useState<{title: string, date: string, time: string, duration: number, description: string, reminders: number[], callAlert: boolean, location: string, category: string}>({ title: '', date: format(selectedDate, 'yyyy-MM-dd'), time: '09:00', duration: 30, description: '', reminders: [1440, 60], callAlert: false, location: '', category: 'Geral' });
+  const [manualForm, setManualForm] = useState<{title: string, date: string, time: string, duration: number, description: string, reminders: number[], callAlert: boolean, location: string, category: string}>({ title: '', date: format(selectedDate, 'yyyy-MM-dd'), time: '09:00', duration: 30, description: '', reminders: [1440], callAlert: false, location: '', category: 'Geral' });
   const [deleteConfirmation, setDeleteConfirmation] = useState<{type: 'appointment' | 'report' | 'all_data' | 'mirror', id: string} | null>(null);
   const [isPro, setIsPro] = useState(false); // Simulando estado de usuário free/pro
   const [recordingTimer, setRecordingTimer] = useState<{id: string, time: number, isRecording: boolean} | null>(null);
@@ -479,22 +480,35 @@ const App: React.FC = () => {
       let updated = false;
 
       appointments.forEach(app => {
-        if (!app.reminders) return;
+        if (!app.reminders || app.reminders.length === 0) return;
         
         const appDate = new Date(`${app.date}T${app.time}`);
         const diffMinutes = Math.round((appDate.getTime() - now.getTime()) / 60000);
         
+        // Se o evento já passou (mais de 10 min atrás), garante que está marcado como notificado e não dispara
+        if (diffMinutes < -10) {
+          app.reminders.forEach(reminderMinutes => {
+            const reminderId = `${app.id}_${app.date}_${app.time}_${reminderMinutes}`;
+            if (!notified[reminderId]) {
+              notified[reminderId] = true;
+              updated = true;
+            }
+          });
+          return;
+        }
+
         app.reminders.forEach(reminderMinutes => {
-          // Include date and time in ID so if the user edits the appointment, the reminder resets
+          // Permite exclusivamente os horários solicitados: 24h (1440), 2h (120) ou 1h (60)
+          if (![1440, 120, 60].includes(reminderMinutes)) return;
+
           const reminderId = `${app.id}_${app.date}_${app.time}_${reminderMinutes}`;
           
-          // Check if we are within a 15-minute window of the reminder time (to catch up if app was closed)
-          if (diffMinutes <= reminderMinutes && diffMinutes > reminderMinutes - 15 && !notified[reminderId]) {
+          // Janela estrita de disparo: dentro dos 5 minutos do horário programado
+          if (diffMinutes <= reminderMinutes && diffMinutes >= (reminderMinutes - 5) && !notified[reminderId]) {
             let timeStr = '';
             if (reminderMinutes === 1440) timeStr = '24 horas';
             else if (reminderMinutes === 120) timeStr = '2 horas';
             else if (reminderMinutes === 60) timeStr = '1 hora';
-            else timeStr = `${reminderMinutes} minutos`;
             
             const message = `Lembrete: ${app.title} começa em ${timeStr}!`;
             
@@ -504,20 +518,20 @@ const App: React.FC = () => {
                   body: message,
                   icon: '/icon-192.png',
                   badge: '/favicon.png',
-                  vibrate: [200, 100, 200],
+                  vibrate: app.callAlert ? [600, 200, 600, 200, 600] : [200, 100, 200],
                   tag: reminderId,
                   renotify: true,
                   data: {
-                    url: window.location.origin
+                    url: window.location.origin,
+                    callAlert: app.callAlert
                   }
                 } as any);
               }).catch(e => console.error("Notification reminder error:", e));
             }
             
-            // Trigger in-app modal and sound
+            // Disparo na tela: se callAlert for verdadeiro, simula chamada; caso contrário apenas alerta normal
             if (app.callAlert) {
               setIncomingCall({ app, timeStr });
-              // Start ringtone logic will be handled inside the IncomingCall component
             } else {
               setActiveReminder({ title: app.title, timeStr });
               playNotificationSound();
@@ -546,7 +560,9 @@ const App: React.FC = () => {
       hasReport: false,
       title: appData.title.toUpperCase(),
       description: appData.description?.toUpperCase() || '',
-      reminders: appData.reminders || [1440, 60],
+      reminders: Array.isArray(appData.reminders) && appData.reminders.length > 0 
+        ? appData.reminders.filter(r => [1440, 120, 60].includes(r))
+        : [1440],
       callAlert: appData.callAlert || false
     };
     
@@ -660,7 +676,9 @@ const App: React.FC = () => {
       time: app.time,
       duration: app.duration,
       description: app.description || '',
-      reminders: app.reminders || [1440, 60],
+      reminders: Array.isArray(app.reminders) && app.reminders.length > 0 
+        ? app.reminders.filter(r => [1440, 120, 60].includes(r))
+        : [1440],
       callAlert: app.callAlert || false,
       location: app.location || '',
       category: app.category || 'Geral'
@@ -670,7 +688,17 @@ const App: React.FC = () => {
 
   const openCreateModal = () => {
     setEditingAppointment(null);
-    setManualForm({ title: '', date: format(selectedDate, 'yyyy-MM-dd'), time: '09:00', duration: 30, description: '', reminders: [1440, 60], callAlert: false, location: '', category: 'Geral' });
+    setManualForm({ 
+      title: '', 
+      date: format(selectedDate, 'yyyy-MM-dd'), 
+      time: '09:00', 
+      duration: 30, 
+      description: '', 
+      reminders: [1440], 
+      callAlert: false, 
+      location: '', 
+      category: 'Geral' 
+    });
     setIsManualModalOpen(true);
   };
 
@@ -728,19 +756,17 @@ const App: React.FC = () => {
 
   const handleShareReport = async (report: MeetingReport) => {
     const appTitle = appointments.find(a => a.id === report.appointmentId)?.title || 'REUNIÃO';
-    const text = `
-📌 *ATA DE REUNIÃO: ${appTitle}*
-📅 Data: ${format(new Date(report.timestamp), "dd/MM/yyyy 'às' HH:mm")}
+    const text = `📌 *MEMÓRIA DO REGISTRO EXECUTIVO DA REUNIÃO*
+📋 *${appTitle.toUpperCase()}*
 
 ${report.markdownReport}
 
-_Enviado via AGENDEI IA_
-    `.trim();
+_Enviado via AGENDEI_`.trim();
 
     if (navigator.share) {
       try {
         await navigator.share({
-          title: `Ata: ${appTitle}`,
+          title: `Memória: ${appTitle}`,
           text: text
         });
       } catch (err) {
@@ -750,7 +776,7 @@ _Enviado via AGENDEI IA_
       }
     } else {
       navigator.clipboard.writeText(text).catch(e => console.error("Clipboard error:", e));
-      alert('Ata completa copiada para a área de transferência!');
+      alert('Memória do registro executivo copiada com sucesso!');
     }
   };
 
@@ -848,8 +874,15 @@ _Enviado via AGENDEI IA_
     }
   };
 
+  const sanitizeTextForPdf = (str: string) => {
+    return str
+      .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{1F018}-\u{1F0F5}\u{1F200}-\u{1F270}\u{2300}-\u{23FF}\u{2B50}\u{200D}]/gu, '')
+      .replace(/[^\x20-\x7E\xA0-\xFF\n\r\t•\-*]/g, '');
+  };
+
   const handleDownloadPDF = (report: MeetingReport) => {
-    const appTitle = appointments.find(a => a.id === report.appointmentId)?.title || 'REUNIÃO';
+    const app = appointments.find(a => a.id === report.appointmentId);
+    const appTitle = (app?.title || 'REUNIÃO').toUpperCase();
     const doc = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',
@@ -871,58 +904,286 @@ _Enviado via AGENDEI IA_
       return false;
     };
 
-    // Header
+    // 1. TÍTULO NO TOPO (Fidelidade com a tela do celular)
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(18);
+    doc.setFontSize(15);
     doc.setTextColor(10, 25, 49); // #0A1931
-    const titleLines = doc.splitTextToSize(`ATA DE REUNIÃO: ${appTitle}`, contentWidth);
+    doc.text('MEMÓRIA DO REGISTRO EXECUTIVO DA REUNIÃO', margin, yPos);
+    yPos += 7;
+
+    // Subtítulo: Nome do compromisso em destaque dourado
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.setTextColor(184, 134, 11); // #B8860B
+    const titleLines = doc.splitTextToSize(appTitle, contentWidth);
     doc.text(titleLines, margin, yPos);
-    yPos += (titleLines.length * 8) + 2;
-    
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.setTextColor(100, 100, 100);
-    doc.text(`Data: ${format(new Date(report.timestamp), "dd/MM/yyyy 'às' HH:mm")}`, margin, yPos);
-    yPos += 15;
-    
-    // Line separator
-    doc.setDrawColor(200, 200, 200);
-    doc.line(margin, yPos - 5, pageWidth - margin, yPos - 5);
-    
-    // Report Content
-    checkPageBreak(30);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(11);
-    doc.setTextColor(50, 50, 50);
-    
-    // Strip simple markdown like ** and # for PDF, or just print it as is
-    const cleanText = report.markdownReport.replace(/\*\*/g, '').replace(/## /g, '');
-    const splitLines = doc.splitTextToSize(cleanText, contentWidth);
-    
-    splitLines.forEach((line: string) => {
-      checkPageBreak(7);
-      doc.text(line, margin, yPos);
-      yPos += 6;
+    yPos += (titleLines.length * 6) + 3;
+
+    // Linha divisória dourada
+    doc.setDrawColor(218, 165, 32);
+    doc.setLineWidth(0.6);
+    doc.line(margin, yPos, pageWidth - margin, yPos);
+    yPos += 8;
+
+    // Processamento linha a linha do relatório Markdown
+    const rawLines = report.markdownReport.split('\n');
+    let skippedMainHeader = false;
+    let skippedSubHeader = false;
+
+    rawLines.forEach((rawLine) => {
+      const line = rawLine.trim();
+
+      if (!line) {
+        yPos += 2.5;
+        return;
+      }
+
+      // Evita duplicar o título principal se ele já estiver na primeira linha do markdown
+      if (!skippedMainHeader && (line.includes('MEMÓRIA DO REGISTRO EXECUTIVO DA REUNIÃO') || line.startsWith('# '))) {
+        skippedMainHeader = true;
+        return;
+      }
+
+      // Evita duplicar o subtítulo se ele for a segunda linha
+      if (!skippedSubHeader && line.startsWith('## ') && line.toUpperCase().includes(appTitle.substring(0, 10))) {
+        skippedSubHeader = true;
+        return;
+      }
+
+      // Linha separadora
+      if (line === '---' || line === '***' || line === '___') {
+        checkPageBreak(8);
+        doc.setDrawColor(220, 220, 220);
+        doc.setLineWidth(0.3);
+        doc.line(margin, yPos, pageWidth - margin, yPos);
+        yPos += 6;
+        return;
+      }
+
+      // Títulos de seção (### 1. RESUMO EXECUTIVO, ### 2. ENCAMINHAMENTOS...)
+      if (line.startsWith('### ') || line.startsWith('## ')) {
+        const cleanHeading = sanitizeTextForPdf(line.replace(/^#{2,3}\s*/, '').replace(/\*\*/g, '').toUpperCase());
+        checkPageBreak(12);
+        yPos += 3;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11.5);
+        doc.setTextColor(10, 25, 49);
+        doc.text(cleanHeading, margin, yPos);
+        yPos += 6;
+        return;
+      }
+
+      // Metadados principais: DATA, PRESENTES, LOCAL E DATA
+      if (line.includes('DATA E HORÁRIO:') || line.includes('PRESENTES:') || line.includes('LOCAL E DATA:')) {
+        const cleanMeta = sanitizeTextForPdf(line.replace(/^[-*•]\s*/, '').replace(/\*\*/g, ''));
+        checkPageBreak(7);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(15, 23, 42);
+        const wrapped = doc.splitTextToSize(`• ${cleanMeta}`, contentWidth);
+        wrapped.forEach((wLine: string) => {
+          checkPageBreak(5.5);
+          doc.text(wLine, margin, yPos);
+          yPos += 5.5;
+        });
+        return;
+      }
+
+      // Itens de lista / Encaminhamentos com marcador
+      if (line.startsWith('* ') || line.startsWith('- ') || line.startsWith('• ')) {
+        const bulletContent = sanitizeTextForPdf(line.replace(/^[-*•]\s*/, '').replace(/\*\*/g, ''));
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.setTextColor(40, 50, 70);
+        const wrapped = doc.splitTextToSize(`•  ${bulletContent}`, contentWidth - 4);
+        wrapped.forEach((wLine: string, idx: number) => {
+          checkPageBreak(5.5);
+          doc.text(wLine, margin + (idx === 0 ? 2 : 5), yPos);
+          yPos += 5.5;
+        });
+        return;
+      }
+
+      // Parágrafos comuns (Resumo Executivo, etc)
+      const cleanParagraph = sanitizeTextForPdf(line.replace(/\*\*/g, ''));
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(50, 60, 80);
+      const splitLines = doc.splitTextToSize(cleanParagraph, contentWidth);
+      splitLines.forEach((pLine: string) => {
+        checkPageBreak(5.5);
+        doc.text(pLine, margin, yPos);
+        yPos += 5.5;
+      });
     });
-    
-    yPos += 15;
-    
-    // Footer on all pages
+
+    // Numeração de páginas no rodapé
     const pageCount = doc.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i);
-      doc.setFont('helvetica', 'italic');
+      doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
-      doc.setTextColor(150, 150, 150);
+      doc.setTextColor(140, 140, 140);
       doc.text(
-        `Gerado por Agendei IA - Página ${i} de ${pageCount}`,
+        `AGENDEI — Memória do Registro Executivo | Página ${i} de ${pageCount}`,
         pageWidth / 2,
         pageHeight - 10,
         { align: 'center' }
       );
     }
-    
-    doc.save(`Ata_${appTitle.replace(/\s+/g, '_')}.pdf`);
+
+    doc.save(`Memoria_Executiva_${appTitle.replace(/\s+/g, '_')}.pdf`);
+  };
+
+  const handleDownloadWord = (report: MeetingReport) => {
+    const app = appointments.find(a => a.id === report.appointmentId);
+    const appTitle = (app?.title || 'REUNIÃO').toUpperCase();
+
+    // Converte Markdown para HTML limpo compatível com Microsoft Word
+    let bodyHtml = '';
+    const rawLines = report.markdownReport.split('\n');
+    let insideList = false;
+    let skippedMainHeader = false;
+    let skippedSubHeader = false;
+
+    rawLines.forEach((rawLine) => {
+      const line = rawLine.trim();
+      if (!line) {
+        if (insideList) {
+          bodyHtml += '</ul>\n';
+          insideList = false;
+        }
+        return;
+      }
+
+      // Evita duplicar cabeçalho
+      if (!skippedMainHeader && (line.includes('MEMÓRIA DO REGISTRO EXECUTIVO DA REUNIÃO') || line.startsWith('# '))) {
+        skippedMainHeader = true;
+        return;
+      }
+      if (!skippedSubHeader && line.startsWith('## ') && line.toUpperCase().includes(appTitle.substring(0, 10))) {
+        skippedSubHeader = true;
+        return;
+      }
+
+      if (line === '---' || line === '***' || line === '___') {
+        if (insideList) { bodyHtml += '</ul>\n'; insideList = false; }
+        bodyHtml += '<hr style="border: 0; border-top: 1.5pt solid #cbd5e1; margin: 16pt 0;" />\n';
+        return;
+      }
+
+      if (line.startsWith('### ') || line.startsWith('## ')) {
+        if (insideList) { bodyHtml += '</ul>\n'; insideList = false; }
+        const titleText = line.replace(/^#{2,3}\s*/, '').replace(/\*\*/g, '');
+        bodyHtml += `<h3 style="font-size: 13pt; color: #0A1931; font-weight: bold; margin-top: 16pt; margin-bottom: 6pt; border-left: 3pt solid #B8860B; padding-left: 8pt; text-transform: uppercase;">${titleText}</h3>\n`;
+        return;
+      }
+
+      if (line.startsWith('* ') || line.startsWith('- ') || line.startsWith('• ')) {
+        if (!insideList) {
+          bodyHtml += '<ul style="margin: 6pt 0 12pt 20pt; padding: 0;">\n';
+          insideList = true;
+        }
+        const liContent = line.replace(/^[-*•]\s*/, '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        bodyHtml += `<li style="font-size: 11pt; color: #1e293b; margin-bottom: 5pt; line-height: 1.5;">${liContent}</li>\n`;
+        return;
+      }
+
+      if (insideList) {
+        bodyHtml += '</ul>\n';
+        insideList = false;
+      }
+
+      const formattedParagraph = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      bodyHtml += `<p style="font-size: 11pt; color: #334155; margin: 6pt 0; line-height: 1.6; text-align: justify;">${formattedParagraph}</p>\n`;
+    });
+
+    if (insideList) {
+      bodyHtml += '</ul>\n';
+    }
+
+    const htmlContent = `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" 
+      xmlns:w="urn:schemas-microsoft-com:office:word" 
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+  <meta charset="utf-8">
+  <title>Memória Executiva - ${appTitle}</title>
+  <!--[if gte mso 9]>
+  <xml>
+    <w:WordDocument>
+      <w:View>Print</w:View>
+      <w:Zoom>100</w:Zoom>
+      <w:DoNotOptimizeForBrowser/>
+    </w:WordDocument>
+  </xml>
+  <![endif]-->
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 2.5cm 2.5cm 2.5cm 2.5cm;
+    }
+    body {
+      font-family: 'Calibri', 'Arial', sans-serif;
+      font-size: 11pt;
+      line-height: 1.6;
+      color: #1e293b;
+      margin: 0;
+      padding: 0;
+    }
+    h1 {
+      font-size: 16pt;
+      font-weight: bold;
+      color: #0A1931;
+      text-transform: uppercase;
+      margin: 0 0 4pt 0;
+      letter-spacing: 0.5pt;
+    }
+    h2 {
+      font-size: 13pt;
+      font-weight: bold;
+      color: #B8860B;
+      text-transform: uppercase;
+      margin: 0 0 12pt 0;
+    }
+    .header-border {
+      border-bottom: 2pt solid #B8860B;
+      margin-bottom: 14pt;
+    }
+    .footer-note {
+      margin-top: 36pt;
+      padding-top: 10pt;
+      border-top: 1pt solid #cbd5e1;
+      font-size: 9pt;
+      color: #64748b;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <div>
+    <h1>MEMÓRIA DO REGISTRO EXECUTIVO DA REUNIÃO</h1>
+    <h2>${appTitle}</h2>
+    <div class="header-border"></div>
+  </div>
+  ${bodyHtml}
+  <div class="footer-note">
+    Documento gerado eletronicamente pelo sistema AGENDEI em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.
+  </div>
+</body>
+</html>`;
+
+    const blob = new Blob(['\ufeff' + htmlContent], {
+      type: 'application/msword;charset=utf-8'
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Memoria_Executiva_${appTitle.replace(/\s+/g, '_')}.doc`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const selectedDayAppointments = useMemo(() => {
@@ -1201,19 +1462,11 @@ _Enviado via AGENDEI IA_
         <div className="absolute top-4 right-0 sm:right-2 flex items-center gap-1.5 sm:gap-2">
           <button 
             onClick={() => setIsThemeModalOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 glass-panel rounded-full text-[9px] sm:text-[10px] font-black text-white uppercase tracking-widest hover:border-[#FDD835] hover:text-[#FDD835] transition-all group"
+            className="flex items-center gap-1.5 px-3 py-2 glass-panel rounded-full text-[9px] sm:text-[10px] font-black text-white uppercase tracking-widest hover:border-[#FDD835] hover:text-[#FDD835] transition-all group shadow-sm"
             title="Alterar Realce de Cores"
           >
             <Palette size={13} className="text-[#FDD835] group-hover:rotate-45 transition-transform" />
-            <span className="hidden xs:inline">Cores</span>
-          </button>
-
-          <button 
-            onClick={() => setSelectedLang(prev => prev.id === 'pt' ? LANGUAGES[1] : LANGUAGES[0])}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2 glass-panel rounded-full text-[9px] sm:text-[10px] font-black text-white uppercase tracking-widest hover:bg-[#FDD835] hover:text-black transition-colors"
-            title="Alternar Idioma"
-          >
-            <Globe size={13} /> {selectedLang.label}
+            <span>Cores</span>
           </button>
         </div>
       </header>
@@ -1696,23 +1949,36 @@ _Enviado via AGENDEI IA_
                 </div>
 
                 <div className="bg-[#0A1526] p-3 rounded-xl border border-white/5 flex flex-col gap-2">
-                  <p className="text-[10px] font-bold text-white/70 uppercase">Testar Notificações (Saia do app ou bloqueie a tela em 5s):</p>
-                  <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-bold text-white/80 uppercase">Testar Aviso com Celular Bloqueado:</p>
+                    <span className="text-[8px] text-[#FDD835] font-mono font-bold bg-[#FDD835]/10 px-1.5 py-0.5 rounded">Disparo em 5s</span>
+                  </div>
+                  <p className="text-[9px] text-white/50 leading-relaxed">
+                    Clique em um botão abaixo, <strong>bloqueie a tela do celular imediatamente</strong> ou saia do navegador. O aviso surgirá no topo em 5 segundos.
+                  </p>
+                  <div className="flex items-center gap-2 flex-wrap pt-1">
                     <button
                       onClick={() => handleTestBackgroundPush(false)}
-                      className="px-3 py-1.5 bg-[#1A2B4C] hover:bg-[#233559] text-white text-[9.5px] font-black uppercase rounded-lg border border-white/10 transition-all flex items-center gap-1.5"
+                      className="px-3 py-2 bg-[#1A2B4C] hover:bg-[#233559] text-white text-[9.5px] font-black uppercase rounded-lg border border-white/10 transition-all flex items-center gap-1.5 active:scale-95 shadow-sm"
                     >
-                      <Bell size={12} className="text-[#FDD835]" />
-                      Testar Aviso Normal
+                      <Bell size={13} className="text-[#FDD835]" />
+                      Testar Aviso Push (5s)
                     </button>
                     <button
                       onClick={() => handleTestBackgroundPush(true)}
-                      className="px-3 py-1.5 bg-[#1A2B4C] hover:bg-[#233559] text-[#FDD835] text-[9.5px] font-black uppercase rounded-lg border border-[#FDD835]/30 transition-all flex items-center gap-1.5"
+                      className="px-3 py-2 bg-[#1A2B4C] hover:bg-[#233559] text-[#FDD835] text-[9.5px] font-black uppercase rounded-lg border border-[#FDD835]/30 transition-all flex items-center gap-1.5 active:scale-95 shadow-sm"
                     >
-                      <PhoneCall size={12} className="text-[#FDD835]" />
-                      Testar Alerta de Ligação
+                      <PhoneCall size={13} className="text-[#FDD835]" />
+                      Testar Ligação Push (5s)
                     </button>
                   </div>
+                </div>
+
+                <div className="mt-3 p-3 bg-white/5 rounded-xl border border-white/10 text-[9px] text-white/60 space-y-1">
+                  <p className="font-bold text-[#FDD835] uppercase text-[9.5px]">📱 Como garantir que o celular receba com o app fechado:</p>
+                  <p>• <strong>No Android:</strong> Confirme que as notificações do navegador (Chrome) estão permitidas e que o app não está em "Otimização restrita de bateria".</p>
+                  <p>• <strong>No iPhone (iOS):</strong> É obrigatório adicionar à Tela de Início (Compartilhar ➔ "Adicionar à Tela de Início") para receber notificações em segundo plano (requer iOS 16.4+).</p>
+                  <p>• <strong>Na Vercel:</strong> O Cron Job periódico foi adicionado no <code className="text-[#FDD835]">vercel.json</code> para verificar os lembretes a cada minuto automaticamente.</p>
                 </div>
              </div>
 
@@ -1893,18 +2159,21 @@ _Enviado via AGENDEI IA_
               </div>
 
               <div className="space-y-2">
-                <label className="text-[9px] font-black text-blue-200 uppercase tracking-widest ml-1 flex items-center gap-1">
-                  <Bell size={10} /> Lembretes
-                </label>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex items-center justify-between ml-1">
+                  <label className="text-[9px] font-black text-blue-200 uppercase tracking-widest flex items-center gap-1">
+                    <Bell size={11} /> Antecedência dos Avisos (Push e Ligação)
+                  </label>
+                  <span className="text-[8px] text-[#FDD835] font-black tracking-wider uppercase bg-[#FDD835]/15 px-2 py-0.5 rounded border border-[#FDD835]/30">
+                    24h Pré-Programado
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
                   {[
-                    { value: 10, label: '10 MIN' },
-                    { value: 30, label: '30 MIN' },
-                    { value: 60, label: '1 HORA' },
-                    { value: 120, label: '2 HORAS' },
-                    { value: 1440, label: '1 DIA' }
+                    { value: 1440, label: '24 HORAS', badge: 'PADRÃO' },
+                    { value: 120, label: '2 HORAS', badge: 'OPÇÃO' },
+                    { value: 60, label: '1 HORA', badge: 'OPÇÃO' }
                   ].map(opt => {
-                    const isActive = manualForm.reminders.includes(opt.value);
+                    const isActive = (manualForm.reminders || []).includes(opt.value);
                     return (
                       <button
                         key={opt.value}
@@ -1914,17 +2183,20 @@ _Enviado via AGENDEI IA_
                             const curr = prev.reminders || [];
                             return {
                               ...prev,
-                              reminders: isActive ? curr.filter(r => r !== opt.value) : [...curr, opt.value].sort((a,b) => b - a)
+                              reminders: isActive 
+                                ? curr.filter(r => r !== opt.value) 
+                                : [...curr, opt.value].sort((a,b) => b - a)
                             };
                           });
                         }}
-                        className={`px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase transition-all ${
+                        className={`py-2.5 px-2 rounded-xl text-[9px] font-black uppercase transition-all flex flex-col items-center justify-center gap-0.5 ${
                           isActive 
-                            ? 'bg-[#FDD835] text-black shadow-md' 
-                            : 'bg-[#1A2B4C] text-slate-400 border border-[#233559] hover:border-[#FDD835]/50'
+                            ? 'bg-[#FDD835] text-black shadow-md border border-[#FDD835]' 
+                            : 'bg-[#112240] text-slate-300 border border-[#233559] hover:border-[#FDD835]/50'
                         }`}
                       >
-                        {opt.label}
+                        <span className="leading-tight">{opt.label}</span>
+                        <span className={`text-[7px] font-bold ${isActive ? 'text-black/70' : 'text-slate-500'}`}>{opt.badge}</span>
                       </button>
                     );
                   })}
@@ -1945,8 +2217,11 @@ _Enviado via AGENDEI IA_
                   }`}
                 >
                   <PhoneCall size={14} className={manualForm.callAlert ? 'animate-pulse' : ''} />
-                  Simular Ligação Antes do Evento
+                  {manualForm.callAlert ? 'Ligação Ativa nos Avisos Programados' : 'Simular Ligação nos Avisos Programados'}
                 </button>
+                <p className="text-[8.5px] text-white/50 ml-1 italic leading-tight">
+                  Quando ativado, o aplicativo simula chamada de voz no horário dos avisos programados (24h, 2h ou 1h).
+                </p>
               </div>
               
               <div className="flex flex-col gap-3 pt-4">
@@ -2036,32 +2311,66 @@ _Enviado via AGENDEI IA_
             )}
 
             {selectedReport && (
-              <div className="space-y-10 pt-4 text-slate-900">
+              <div className="space-y-8 pt-2 text-slate-900">
                 <header className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black text-[#FDD835] tracking-[0.4em] uppercase bg-[#FDD835]/5 px-4 py-2 rounded-full inline-block">Resumo da Reunião</span>
+                    <span className="text-[10px] font-black text-[#FDD835] tracking-[0.25em] uppercase bg-[#FDD835]/10 border border-[#FDD835]/30 px-3.5 py-1.5 rounded-full inline-block">
+                      Memória do Registro Executivo da Reunião
+                    </span>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => handleShareReport(selectedReport)} className="p-3 bg-[#1A2B4C] rounded-xl text-white hover:bg-[#FDD835] transition-all" title="Compartilhar"><Share2 size={18}/></button>
+                      <button onClick={() => handleShareReport(selectedReport)} className="p-3 bg-[#1A2B4C] rounded-xl text-white hover:bg-[#FDD835] hover:text-black transition-all" title="Compartilhar"><Share2 size={18}/></button>
                       <button onClick={(e) => handleDeleteReport(e, selectedReport.appointmentId)} className="p-3 bg-[#1A2B4C] rounded-xl text-orange-400 hover:text-orange-600 hover:bg-orange-50 transition-all" title="Excluir apenas a Ata"><Trash2 size={18}/></button>
                       <button onClick={(e) => handleDeleteAppointment(e, selectedReport.appointmentId)} className="p-3 bg-red-50 rounded-xl text-red-500 hover:text-red-700 hover:bg-red-100 transition-all" title="Excluir Compromisso e Ata"><X size={18}/></button>
                     </div>
                   </div>
-                  <h2 className="text-2xl sm:text-3xl font-black text-white uppercase leading-tight pr-16 sm:pr-0">{appointments.find(a => a.id === selectedReport.appointmentId)?.title}</h2>
+                  <h2 className="text-2xl sm:text-3xl font-black text-white uppercase leading-tight pr-16 sm:pr-0">
+                    {appointments.find(a => a.id === selectedReport.appointmentId)?.title}
+                  </h2>
                 </header>
 
-                <div className="space-y-6 sm:space-y-8">
+                <div className="space-y-6">
                   <div className="bg-[#1A2B4C] p-5 sm:p-8 rounded-[2rem] sm:rounded-[2.5rem] border-2 border-[#FDD835]/20 text-[13px] sm:text-[15px] text-blue-100 leading-relaxed shadow-inner markdown-body">
                     <Markdown>{selectedReport.markdownReport}</Markdown>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4">
-                   <button onClick={() => navigator.clipboard.writeText(selectedReport.markdownReport).catch(e => console.error("Clipboard error:", e))} className="py-4 sm:py-5 bg-[#1A2B4C] rounded-[1.5rem] text-[10px] font-black uppercase text-white border-2 border-[#233559] hover:bg-[#1A2B4C] transition-all">Copiar Tudo</button>
-                   <button onClick={() => handleDownloadPDF(selectedReport)} className="py-4 sm:py-5 bg-[#FDD835] rounded-[1.5rem] text-[10px] font-black uppercase text-black shadow-xl hover:bg-[#233559] transition-all flex items-center justify-center gap-2">
-                     <Download size={14} /> Baixar PDF
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2">
+                   <button 
+                     onClick={() => {
+                       navigator.clipboard.writeText(selectedReport.markdownReport).catch(e => console.error("Clipboard error:", e));
+                       alert('Memória do registro executivo copiada com sucesso!');
+                     }} 
+                     className="py-3.5 sm:py-4 px-3 bg-[#1A2B4C] rounded-2xl text-[10px] font-black uppercase text-white border border-[#233559] hover:bg-[#233559] transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-sm"
+                     title="Copiar texto completo"
+                   >
+                     <span>Copiar Tudo</span>
                    </button>
-                   <button onClick={() => handleShareReport(selectedReport)} className="py-4 sm:py-5 bg-[#0A1931] rounded-[1.5rem] text-[10px] font-black uppercase text-white shadow-xl hover:bg-[#FDD835] transition-all flex items-center justify-center gap-2">
-                     <Share2 size={14} /> Enviar
+                   
+                   <button 
+                     onClick={() => handleDownloadPDF(selectedReport)} 
+                     className="py-3.5 sm:py-4 px-3 bg-[#FDD835] rounded-2xl text-[10px] font-black uppercase text-black shadow-lg hover:bg-[#ffe566] transition-all flex items-center justify-center gap-1.5 active:scale-95"
+                     title="Baixar em PDF oficial"
+                   >
+                     <Download size={15} /> 
+                     <span>Baixar PDF</span>
+                   </button>
+
+                   <button 
+                     onClick={() => handleDownloadWord(selectedReport)} 
+                     className="py-3.5 sm:py-4 px-3 bg-[#2563EB] rounded-2xl text-[10px] font-black uppercase text-white shadow-lg hover:bg-[#1d4ed8] transition-all flex items-center justify-center gap-1.5 active:scale-95"
+                     title="Baixar em Word para editar e corrigir"
+                   >
+                     <FileText size={15} /> 
+                     <span>Baixar Word</span>
+                   </button>
+
+                   <button 
+                     onClick={() => handleShareReport(selectedReport)} 
+                     className="py-3.5 sm:py-4 px-3 bg-[#0A1931] rounded-2xl text-[10px] font-black uppercase text-white border border-white/10 hover:border-[#FDD835] transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-sm"
+                     title="Enviar ou Compartilhar"
+                   >
+                     <Share2 size={15} /> 
+                     <span>Enviar</span>
                    </button>
                 </div>
               </div>

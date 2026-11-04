@@ -77,15 +77,12 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           
           <div className="flex justify-between items-center bg-[#112240] p-4 rounded-xl mb-3">
             <div>
-              <p className="text-sm font-bold text-white uppercase">Idioma Base</p>
+              <p className="text-sm font-bold text-white uppercase">Idioma do Sistema</p>
+              <p className="text-[10px] text-white/50 uppercase">Português do Brasil</p>
             </div>
-            <select 
-              value={selectedLang.id} 
-              onChange={e => setSelectedLang(LANGUAGES.find(l => l.id === e.target.value) || LANGUAGES[0])}
-              className="bg-[#0A1526] text-white text-xs p-2 uppercase font-bold tracking-widest rounded border border-[#233559]"
-            >
-              {LANGUAGES.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-            </select>
+            <span className="px-3.5 py-1.5 bg-[#FDD835]/15 border border-[#FDD835]/30 text-[#FDD835] text-[10.5px] font-black uppercase rounded-lg shadow-sm">
+              🇧🇷 Português
+            </span>
           </div>
         </div>
         

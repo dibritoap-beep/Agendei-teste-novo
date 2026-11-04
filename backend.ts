@@ -6,28 +6,45 @@ export const app = express();
 
 app.use(express.json({ limit: '10mb' }));
 
-// Helper to generate a beautiful structured offline fallback report
-const generateFallbackReport = (text: string, title: string) => {
-  const dateStr = new Date().toLocaleDateString('pt-BR', { 
-    day: '2-digit', 
-    month: '2-digit', 
-    year: 'numeric', 
-    hour: '2-digit', 
-    minute: '2-digit' 
-  });
-  
-  const formattedLines = text ? text.split('\n').map(line => `> ${line}`).join('\n') : '';
-  
-  return `# MEMÓRIA DO REGISTRO EXECUTIVO DA REUNIÃO: ${title || 'PONTOS CHAVE'}
-## Gerado em: ${dateStr}
+// Helper to generate a structured executive fallback report matching the approved layout
+const generateFallbackReport = (
+  text: string, 
+  title: string, 
+  dateStr?: string, 
+  timeStr?: string, 
+  locationStr?: string
+) => {
+  const now = new Date();
+  const dateFormatted = dateStr 
+    ? dateStr.split('-').reverse().join('/') 
+    : now.toLocaleDateString('pt-BR');
+  const timeFormatted = timeStr || now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const locationFormatted = locationStr || 'Sede / Reunião Executiva';
+  const fullDateExtenso = now.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
 
-Durante a reunião, os participantes deliberaram sobre os pontos centrais e encaminhamentos futuros:
+  const points = text 
+    ? text.split('\n').filter(l => l.trim()).map(line => `* ${line.replace(/^[-*•>]\s*/, '')}`).join('\n') 
+    : '* Alinhamento das diretrizes e objetivos prioritários da agenda.';
 
-${formattedLines}
+  return `# MEMÓRIA DO REGISTRO EXECUTIVO DA REUNIÃO
+## ${title ? title.toUpperCase() : 'REUNIÃO EXECUTIVA'}
 
-### 📋 DELIBERAÇÕES E PRÓXIMOS PASSOS:
-* **Alinhamento:** Todos os pontos listados acima foram arquivados com sucesso no histórico deste compromisso.
-* **Encaminhamentos:** As ações futuras decorrentes destas discussões serão acompanhadas diretamente pelo painel principal da agenda.`;
+* **DATA E HORÁRIO:** ${dateFormatted} às ${timeFormatted}
+* **PRESENTES:** Participantes registrados e partes interessadas do compromisso.
+
+---
+
+### 1. RESUMO EXECUTIVO
+Durante a sessão de trabalho, foram abordados os tópicos centrais da pauta, analisando o progresso das ações em curso e consolidando os principais direcionamentos operacionais e estratégicos.
+
+### 2. ENCAMINHAMENTOS E DELIBERAÇÕES
+${points}
+* **Acompanhamento:** Registro arquivado com sucesso no histórico executivo do AGENDEI.
+
+---
+
+**LOCAL E DATA:**  
+${locationFormatted}, ${fullDateExtenso}.`;
 };
 
 // Helper handler: Health Check
@@ -37,13 +54,21 @@ const handleHealth = (req: express.Request, res: express.Response) => {
 
 // Helper handler: Analyze Meeting
 const handleAnalyzeMeeting = async (req: express.Request, res: express.Response) => {
-  const { transcript = '', language = 'Português', termsAccepted = true, activeAppointmentTitle = '' } = req.body || {};
+  const { 
+    transcript = '', 
+    language = 'Português', 
+    termsAccepted = true, 
+    activeAppointmentTitle = '',
+    activeAppointmentDate = '',
+    activeAppointmentTime = '',
+    activeAppointmentLocation = ''
+  } = req.body || {};
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
     console.log("GEMINI_API_KEY missing - returning elegant local fallback report.");
     return res.json({
-      markdownReport: generateFallbackReport(transcript, activeAppointmentTitle),
+      markdownReport: generateFallbackReport(transcript, activeAppointmentTitle, activeAppointmentDate, activeAppointmentTime, activeAppointmentLocation),
       fullTranscript: transcript,
       isFallback: true
     });
@@ -58,25 +83,48 @@ const handleAnalyzeMeeting = async (req: express.Request, res: express.Response)
         }
       }
     });
+
+    const contextInfo = `
+Compromisso: ${activeAppointmentTitle || 'Reunião Executiva'}
+Data: ${activeAppointmentDate || new Date().toLocaleDateString('pt-BR')}
+Horário: ${activeAppointmentTime || ''}
+Local: ${activeAppointmentLocation || 'Reunião Presencial / Remota'}
+`;
+
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: `Transcrição/Notas da Reunião: "${transcript}"\n\n[LI E ACEITO AS RESPONSABILIDADES]`,
+      contents: `Contexto do Agendamento:\n${contextInfo}\n\nTranscrição ou Notas Brutas da Reunião:\n"${transcript}"\n\n[PROCESSE CONFORME A ESTRUTURA OFICIAL EXIGIDA]`,
       config: {
-        systemInstruction: `Analise e processe as entradas da reunião (áudio transcrito ou notas digitadas) em ${language || 'Português'}.
-             
-      # PERSONA: "CÉREBRO DA AGENDA DE VOZ INTELIGENTE"
-      Você é a inteligência central de um aplicativo SaaS de produtividade. Sua missão é transformar informações capturadas durante ou após uma reunião (seja voz longa ou apenas os pontos principais digitados) em uma memória executiva de alto valor.
-      
-      # DIRETRIZES DE ESTILO E FORMATO
-      1. Use Markdown (Emojis, Negrito, Listas).
-      2. Idioma: Português do Brasil (PT-BR).
-      3. Seja conciso, executivo e claro.
-      
-      # ESTRUTURA DA MEMÓRIA DO REGISTRO EXECUTIVO DA REUNIÃO
-      # MEMÓRIA DO REGISTRO EXECUTIVO DA REUNIÃO
-      ## ${activeAppointmentTitle || 'REUNIÃO EXECUTIVA'}
-      
-      [Redija a memória do registro executivo da reunião detalhando as principais abordagens, decisões tomadas e encaminhamentos futuros de forma clara e profissional.]`,
+        systemInstruction: `Você é a inteligência central do sistema "AGENDEI", especializada em redigir Memórias e Atas Executivas de alto padrão institucional em ${language || 'Português'}.
+
+REGRAS DE FORMATAÇÃO E ESTRUTURA (OBRIGATÓRIO):
+A saída DEVE seguir estritamente o formato abaixo, sem introduções e sem rodapés extras:
+
+# MEMÓRIA DO REGISTRO EXECUTIVO DA REUNIÃO
+## [TÍTULO DO COMPROMISSO EM MAIÚSCULAS]
+
+* **DATA E HORÁRIO:** [Data no formato DD/MM/AAAA às HH:MM]
+* **PRESENTES:** [Identifique todas as pessoas mencionadas na transcrição ou notas. Se não houver nomes citados, informe "Participantes da reunião"]
+
+---
+
+### 1. RESUMO EXECUTIVO
+[Redija um resumo conciso, executivo e de alto nível de tudo o que foi tratado e alinhado na reunião]
+
+### 2. ENCAMINHAMENTOS E DELIBERAÇÕES
+* [Encaminhamento / Ação 1 com responsável e prazo se citados]
+* [Encaminhamento / Ação 2 com responsável e prazo se citados]
+* [Encaminhamento / Ação 3...]
+
+---
+
+**LOCAL E DATA:**  
+[Local informado no agendamento ou cidade], [Data completa por extenso, ex: 26 de Outubro de 2026].
+
+Diretrizes adicionais:
+1. Idioma: Português do Brasil (PT-BR).
+2. Não utilize emojis no texto para assegurar perfeita compatibilidade de exportação para PDF e Word.
+3. Seja formal, claro e focado nas decisões tomadas e nos encaminhamentos.`,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -107,14 +155,16 @@ const handleAnalyzeMeeting = async (req: express.Request, res: express.Response)
     }
 
     return res.json({
-      markdownReport: text.startsWith('{') ? generateFallbackReport(transcript, activeAppointmentTitle) : (text || generateFallbackReport(transcript, activeAppointmentTitle)),
+      markdownReport: text.startsWith('{') 
+        ? generateFallbackReport(transcript, activeAppointmentTitle, activeAppointmentDate, activeAppointmentTime, activeAppointmentLocation) 
+        : (text || generateFallbackReport(transcript, activeAppointmentTitle, activeAppointmentDate, activeAppointmentTime, activeAppointmentLocation)),
       fullTranscript: transcript
     });
 
   } catch (error: any) {
     console.error("Gemini Error - generating beautiful local fallback:", error);
     return res.json({
-      markdownReport: generateFallbackReport(transcript, activeAppointmentTitle),
+      markdownReport: generateFallbackReport(transcript, activeAppointmentTitle, activeAppointmentDate, activeAppointmentTime, activeAppointmentLocation),
       fullTranscript: transcript,
       isFallback: true
     });
@@ -237,15 +287,14 @@ const handleVoiceAssistant = async (req: express.Request, res: express.Response)
 // ==========================================
 // WEB PUSH NOTIFICATIONS (BACKGROUND ALERTS)
 // ==========================================
-let vapidKeys = {
-  publicKey: process.env.VAPID_PUBLIC_KEY || '',
-  privateKey: process.env.VAPID_PRIVATE_KEY || ''
-};
+// Chaves VAPID permanentes padrão do AGENDEI (podem ser sobrescritas por variáveis de ambiente na Vercel)
+const DEFAULT_VAPID_PUBLIC = 'BIUatPKLDp5ebV9MQvxz1Ik4imaKcU6me0cRGO1EuzKGHtLa2ZZ-4PuKwCaKUAtosZTow8H7SMPWDhofsFDLJwE';
+const DEFAULT_VAPID_PRIVATE = 'XLaVilpQrkezGVP7A_b9WBZa22kRwRa9O6eekWB_r4M';
 
-if (!vapidKeys.publicKey || !vapidKeys.privateKey) {
-  const generated = webpush.generateVAPIDKeys();
-  vapidKeys = generated;
-}
+let vapidKeys = {
+  publicKey: process.env.VAPID_PUBLIC_KEY || DEFAULT_VAPID_PUBLIC,
+  privateKey: process.env.VAPID_PRIVATE_KEY || DEFAULT_VAPID_PRIVATE
+};
 
 try {
   webpush.setVapidDetails(
@@ -369,6 +418,11 @@ const handlePushSchedule = (req: express.Request, res: express.Response) => {
     return res.status(400).json({ error: "Parâmetros incompletos" });
   }
 
+  // Se o alarme for no passado, descarta imediatamente para nunca disparar notificações indevidas
+  if (targetTimestamp <= Date.now()) {
+    return res.json({ success: true, ignored: true, reason: "Timestamp no passado" });
+  }
+
   // Filter out any existing push with this ID to avoid duplicates
   scheduledPushes = scheduledPushes.filter(p => p.id !== id);
 
@@ -382,6 +436,50 @@ const handlePushSchedule = (req: express.Request, res: express.Response) => {
   });
 
   res.json({ success: true, scheduledCount: scheduledPushes.length });
+};
+
+const handlePushCron = async (req: express.Request, res: express.Response) => {
+  const now = Date.now();
+  const due = scheduledPushes.filter(item => item.targetTimestamp <= now);
+  
+  if (due.length === 0) {
+    return res.json({ success: true, processed: 0, pending: scheduledPushes.length, timestamp: now });
+  }
+
+  // Remove processed items
+  scheduledPushes = scheduledPushes.filter(item => item.targetTimestamp > now);
+
+  let sentCount = 0;
+  for (const item of due) {
+    const payload = JSON.stringify({
+      title: item.title,
+      body: item.body,
+      callAlert: item.callAlert,
+      appointmentId: item.appointmentId,
+      url: item.callAlert ? `/?call=true&title=${encodeURIComponent(item.title)}` : '/'
+    });
+
+    for (const subStr of pushSubscriptions) {
+      try {
+        const sub = JSON.parse(subStr);
+        await webpush.sendNotification(sub, payload);
+        sentCount++;
+      } catch (err: any) {
+        if (err.statusCode === 404 || err.statusCode === 410) {
+          pushSubscriptions.delete(subStr);
+        } else {
+          console.error("Error dispatching background push in cron:", err);
+        }
+      }
+    }
+  }
+
+  res.json({
+    success: true,
+    processed: due.length,
+    sentNotifications: sentCount,
+    remainingScheduled: scheduledPushes.length
+  });
 };
 
 // Route Registrations (both /api/route and /route for Vercel rewrite compatibility)
@@ -405,4 +503,9 @@ app.post("/push-test", handlePushTest);
 
 app.post("/api/push-schedule", handlePushSchedule);
 app.post("/push-schedule", handlePushSchedule);
+
+app.get("/api/cron/check-reminders", handlePushCron);
+app.get("/cron/check-reminders", handlePushCron);
+app.post("/api/cron/check-reminders", handlePushCron);
+app.post("/cron/check-reminders", handlePushCron);
 

@@ -77,8 +77,8 @@ const localParseText = (text: string, defaultDate: Date) => {
     description: descriptionStr,
     location: locationStr,
     category: 'Geral',
-    reminders: [10, 30, 60, 120, 1440],
-    callAlert: true
+    reminders: [1440],
+    callAlert: false
   };
 };
 
@@ -211,7 +211,8 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAddAppointment, onFil
                 location: args.local || '',
                 category: args.categoria || 'Geral',
                 potentialConflict: false,
-                callAlert: args.me_ligar_antes !== undefined ? args.me_ligar_antes : true
+                reminders: [1440],
+                callAlert: !!args.me_ligar_antes
               });
             } else {
               onAddAppointment({
@@ -223,8 +224,8 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAddAppointment, onFil
                 location: args.local || 'Não informado',
                 category: args.categoria || 'Geral',
                 potentialConflict: false,
-                reminders: [10, 30, 60, 120, 1440],
-                callAlert: args.me_ligar_antes !== undefined ? args.me_ligar_antes : true
+                reminders: [1440],
+                callAlert: !!args.me_ligar_antes
               });
             }
             

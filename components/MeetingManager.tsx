@@ -13,7 +13,6 @@ interface MeetingManagerProps {
 
 const TRANSLATIONS: Record<string, any> = {
   pt: { sessao: 'CAPTURA ATIVA', caption: 'GRAVE OU COMENTE OS PRINCIPAIS PONTOS', finalizar: 'ENCERRAR E GERAR MEMÓRIA', ouvindo: 'TRANSCREVENDO...', redigindo: 'REDIGINDO MEMÓRIA...', sintetizando: 'PROCESSANDO...', erro: 'ERRO DE CONEXÃO', tentar: 'REINICIAR', sintese: 'ANÁLISE DE AUTENTICIDADE', fidelidade: 'PRECISÃO', silenciando: 'CANAL DE ÁUDIO ATIVO', regravar: 'DESCARTAR' },
-  en: { sessao: 'ACTIVE CAPTURE', caption: 'START RECORDING OR TYPING', finalizar: 'GENERATE MEMORY', ouvindo: 'TRANSCRIBING...', redigindo: 'DRAFTING MEMORY...', sintetizando: 'PROCESSING...', erro: 'CONNECTION ERROR', tentar: 'RETRY', sintese: 'AUTHENTICITY ANALYSIS', fidelidade: 'PRECISION', silenciando: 'ACTIVE CHANNEL', regravar: 'DISCARD' },
 };
 
 const MeetingManager: React.FC<MeetingManagerProps> = ({ activeAppointment, onReportGenerated, selectedLanguage, onTimerUpdate, onRecordingStateChange }) => {
@@ -176,7 +175,10 @@ const MeetingManager: React.FC<MeetingManagerProps> = ({ activeAppointment, onRe
           transcript: finalTranscript,
           language: selectedLanguage.name || 'Português',
           termsAccepted: true,
-          activeAppointmentTitle: activeAppointment?.title || 'Reunião Executiva'
+          activeAppointmentTitle: activeAppointment?.title || 'Reunião Executiva',
+          activeAppointmentDate: activeAppointment?.date || '',
+          activeAppointmentTime: activeAppointment?.time || '',
+          activeAppointmentLocation: activeAppointment?.location || ''
         }),
       });
 
@@ -192,7 +194,7 @@ const MeetingManager: React.FC<MeetingManagerProps> = ({ activeAppointment, onRe
       }
 
       const result = await response.json();
-      const reportText = result.markdownReport || result.report || `## ${activeAppointment?.title || 'MEMÓRIA DE REUNIÃO'}\n\n${finalTranscript}`;
+      const reportText = result.markdownReport || result.report || `# MEMÓRIA DO REGISTRO EXECUTIVO DA REUNIÃO\n## ${activeAppointment?.title?.toUpperCase() || 'REUNIÃO'}\n\n${finalTranscript}`;
       
       onReportGenerated({
         id: Math.random().toString(36).substr(2, 9),
@@ -204,13 +206,41 @@ const MeetingManager: React.FC<MeetingManagerProps> = ({ activeAppointment, onRe
       setStatus(VoiceState.IDLE);
     } catch (error: any) { 
       console.error("Erro no processamento IA:", error);
-      // Fallback local report on any unexpected client/network error
-      const fallbackDate = new Date().toLocaleDateString('pt-BR');
+      // Fallback local report on any unexpected client/network error matching the exact official structure
+      const now = new Date();
+      const dateFormatted = activeAppointment?.date 
+        ? activeAppointment.date.split('-').reverse().join('/') 
+        : now.toLocaleDateString('pt-BR');
+      const timeFormatted = activeAppointment?.time || now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const locationFormatted = activeAppointment?.location || 'Sede / Reunião Executiva';
+      const fullDateExtenso = now.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
+      const formattedPoints = finalTranscript 
+        ? finalTranscript.split('\n').filter(l => l.trim()).map(line => `* ${line.replace(/^[-*•>]\s*/, '')}`).join('\n') 
+        : '* Alinhamento dos pontos centrais da reunião.';
+
       onReportGenerated({
         id: Math.random().toString(36).substr(2, 9),
         appointmentId: activeAppointment?.id || '',
         timestamp: new Date().toISOString(),
-        markdownReport: `# MEMÓRIA DO REGISTRO EXECUTIVO DA REUNIÃO: ${activeAppointment?.title || 'REUNIÃO'}\n## Gerado em ${fallbackDate}\n\n> ${finalTranscript.split('\n').join('\n> ')}\n\n### 📋 DELIBERAÇÕES E PRÓXIMOS PASSOS:\n* **Status:** Registro gravado e arquivado com sucesso no histórico deste compromisso.`,
+        markdownReport: `# MEMÓRIA DO REGISTRO EXECUTIVO DA REUNIÃO
+## ${activeAppointment?.title?.toUpperCase() || 'REUNIÃO EXECUTIVA'}
+
+* **DATA E HORÁRIO:** ${dateFormatted} às ${timeFormatted}
+* **PRESENTES:** Participantes registrados da reunião
+
+---
+
+### 1. RESUMO EXECUTIVO
+Durante a reunião, os participantes deliberaram sobre os temas centrais e definiram os direcionamentos estratégicos do compromisso.
+
+### 2. ENCAMINHAMENTOS E DELIBERAÇÕES
+${formattedPoints}
+* **Acompanhamento:** Registro arquivado com sucesso no histórico executivo do AGENDEI.
+
+---
+
+**LOCAL E DATA:**  
+${locationFormatted}, ${fullDateExtenso}.`,
         fullTranscript: finalTranscript
       });
       setStatus(VoiceState.IDLE);

@@ -75,6 +75,34 @@ self.addEventListener('message', (event) => {
     const { title, body, tag, callAlert, timestamp, url } = event.data;
     const isCall = !!callAlert;
 
+    // Se o alarme possui timestamp futuro e o navegador não suporta TimestampTrigger nativo,
+    // NÃO disparar imediatamente! O servidor enviará o push no momento exato agendado.
+    if (timestamp && timestamp > Date.now()) {
+      if ('showTrigger' in Notification.prototype && typeof TimestampTrigger !== 'undefined') {
+        try {
+          const options = {
+            body: body || 'Você tem um compromisso agendado!',
+            icon: '/icon-192.png',
+            badge: '/icon-192.png',
+            tag: tag || (isCall ? 'agendei-call-alert' : 'agendei-reminder'),
+            vibrate: isCall ? [600, 200, 600, 200, 600, 200, 1000] : [300, 150, 300],
+            requireInteraction: true,
+            showTrigger: new TimestampTrigger(timestamp),
+            data: {
+              url: url || (isCall ? `/?call=true&title=${encodeURIComponent(title || '')}` : '/'),
+              callAlert: isCall
+            }
+          };
+          self.registration.showNotification(title || 'AGENDEI - Lembrete', options);
+        } catch (e) {
+          console.warn('TimestampTrigger não suportado, aguardando push do servidor:', e);
+        }
+      }
+      // Não executa showNotification se o alarme for no futuro!
+      return;
+    }
+
+    // Disparo imediato apenas quando explicitamente solicitado no momento presente
     const options = {
       body: body || 'Você tem um compromisso agendado!',
       icon: '/icon-192.png',
@@ -93,14 +121,6 @@ self.addEventListener('message', (event) => {
         { action: 'open', title: 'Abrir Agenda' }
       ]
     };
-
-    if (timestamp && 'showTrigger' in Notification.prototype && typeof TimestampTrigger !== 'undefined') {
-      try {
-        options.showTrigger = new TimestampTrigger(timestamp);
-      } catch (e) {
-        console.warn('TimestampTrigger error:', e);
-      }
-    }
 
     self.registration.showNotification(title || 'AGENDEI - Lembrete', options);
   }

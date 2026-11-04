@@ -101,5 +101,11 @@
       "source": "/((?!api/|sw\\.js|sw-push\\.js|manifest\\.webmanifest|manifest\\.json|.*\\.[\\w]+$).*)",
       "destination": "/index.html"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/check-reminders",
+      "schedule": "* * * * *"
+    }
   ]
 }

@@ -85,21 +85,7 @@ export async function scheduleServerPushReminder(params: {
   appointmentId?: string;
 }): Promise<boolean> {
   try {
-    // 1. Tenta agendar localmente no Service Worker via Notification Trigger
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.ready.then(reg => {
-        reg.active?.postMessage({
-          type: 'SHOW_NOTIFICATION',
-          title: params.title,
-          body: params.body,
-          tag: params.id,
-          callAlert: params.callAlert,
-          timestamp: params.targetTimestamp
-        });
-      }).catch(() => {});
-    }
-
-    // 2. Registra no servidor para envio Push remoto garantido mesmo com celular fechado
+    // Registra no servidor para envio Push remoto garantido no momento exato do alarme
     const res = await fetch('/api/push-schedule', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

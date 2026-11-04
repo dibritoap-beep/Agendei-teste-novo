@@ -183,48 +183,66 @@ body {
 }
 
 /* Markdown Styles */
-.markdown-body h2 {
-  font-size: 1.25rem;
-  font-weight: 800;
-  color: var(--theme-accent, #FFD700);
-  margin-top: 1.5rem;
-  margin-bottom: 0.75rem;
+.markdown-body h1 {
+  font-size: 1.15rem;
+  font-weight: 900;
+  color: #FFFFFF;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
+  opacity: 0.95;
+}
+
+.markdown-body h2 {
+  font-size: 1.35rem;
+  font-weight: 900;
+  color: var(--theme-accent, #FFD700);
+  margin-top: 0.5rem;
+  margin-bottom: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 .markdown-body h3 {
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: #FFF;
-  margin-top: 1.25rem;
-  margin-bottom: 0.5rem;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #FFFFFF;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-left: 3px solid var(--theme-accent, #FFD700);
+  padding-left: 0.6rem;
 }
 
 .markdown-body p {
-  margin-bottom: 1rem;
-  line-height: 1.6;
+  margin-bottom: 0.85rem;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .markdown-body ul {
   list-style-type: disc;
-  padding-left: 1.5rem;
-  margin-bottom: 1rem;
+  padding-left: 1.4rem;
+  margin-bottom: 1.2rem;
 }
 
 .markdown-body li {
   margin-bottom: 0.5rem;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.92);
 }
 
 .markdown-body strong {
   font-weight: 700;
-  color: #FFF;
+  color: #FFFFFF;
 }
 
 .markdown-body hr {
   border: 0;
-  border-top: 1px solid rgba(255, 215, 0, 0.2);
-  margin: 2rem 0;
+  border-top: 1px solid rgba(255, 215, 0, 0.25);
+  margin: 1.5rem 0;
 }
 
 /* Hide scrollbar for clean horizontal strips */

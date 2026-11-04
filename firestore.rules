@@ -8,5 +8,11 @@ service cloud.firestore {
     match /mirror_configs/{config} {
       allow read, write: if true;
     }
+    match /push_subscriptions/{subId} {
+      allow read, write: if true;
+    }
+    match /scheduled_pushes/{pushId} {
+      allow read, write: if true;
+    }
   }
 }

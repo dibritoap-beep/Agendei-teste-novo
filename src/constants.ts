@@ -1,6 +1,5 @@
-import { ptBR, enUS } from 'date-fns/locale';
+import { ptBR } from 'date-fns/locale';
 
 export const LANGUAGES = [
-  { id: 'pt', label: 'BR', flag: '🇧🇷', name: 'Portugues', locale: ptBR },
-  { id: 'en', label: 'EN', flag: '🇺🇸', name: 'English', locale: enUS },
+  { id: 'pt', label: 'PT-BR', flag: '🇧🇷', name: 'Português', locale: ptBR },
 ];
